@@ -225,7 +225,9 @@ function DashboardPage(): React.JSX.Element {
               <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-200/72">
                 Workspace Folder
               </p>
-              <h2 className="mt-3 text-lg font-medium text-white">Pick a folder from your machine</h2>
+              <h2 className="mt-3 text-lg font-medium text-white">
+                Pick a folder from your machine
+              </h2>
               <p className="mt-2 text-sm leading-6 text-slate-300/75">
                 The renderer requests a single folder through the Electron main process.
               </p>
@@ -281,7 +283,7 @@ function InfoCard({ label, value }: { label: string; value: string }): React.JSX
       <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-300/56">
         {label}
       </p>
-      <p className="mt-3 break-words text-sm leading-6 text-white">{value}</p>
+      <p className="mt-3 wrap-break-word text-sm leading-6 text-white">{value}</p>
     </article>
   )
 }
@@ -297,7 +299,7 @@ function CenteredStatus({
     <div
       className={
         compact
-          ? 'flex min-h-[520px] w-full items-center justify-center rounded-[28px] border border-white/8 bg-white/4 px-6 text-center text-sm text-slate-200/80'
+          ? 'flex min-h-130 w-full items-center justify-center rounded-[28px] border border-white/8 bg-white/4 px-6 text-center text-sm text-slate-200/80'
           : 'flex min-h-[calc(100vh-3rem)] items-center justify-center text-center text-sm text-slate-200/80'
       }
     >
