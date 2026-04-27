@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS, type AppVersions } from '../shared/ipc'
+import { createRendererServer, type RendererServer } from './services/rendererServer'
 import icon from '../../resources/icon.png?asset'
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['https:', 'mailto:'])
@@ -40,8 +41,29 @@ function getAppVersions(): AppVersions {
   }
 }
 
-function createWindow(): void {
-  const rendererUrl = is.dev ? getRendererUrl() : null
+let rendererServer: RendererServer | null = null
+
+async function getProductionRendererUrl(): Promise<URL> {
+  if (!rendererServer) {
+    rendererServer = await createRendererServer()
+  }
+
+  return new URL(rendererServer.origin)
+}
+
+async function createWindow(): Promise<void> {
+  const rendererUrl = is.dev
+    ? (() => {
+        const url = getRendererUrl()
+
+        if (!url) {
+          throw new Error('Renderer URL is required in development')
+        }
+
+        return url
+      })()
+    : await getProductionRendererUrl()
+  const allowedOrigin = rendererUrl.origin
   const mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
@@ -71,10 +93,14 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    const allowedUrl = rendererUrl?.toString()
+    try {
+      const nextUrl = new URL(navigationUrl)
 
-    if (allowedUrl && navigationUrl === allowedUrl) {
-      return
+      if (nextUrl.origin === allowedOrigin) {
+        return
+      }
+    } catch {
+      // Ignore invalid URLs and block the navigation below.
     }
 
     event.preventDefault()
@@ -88,11 +114,7 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  if (rendererUrl) {
-    void mainWindow.loadURL(rendererUrl.toString())
-  } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
+  void mainWindow.loadURL(rendererUrl.toString())
 }
 
 app.whenReady().then(() => {
@@ -105,15 +127,24 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.ping, () => 'pong')
   ipcMain.handle(IPC_CHANNELS.getVersions, () => getAppVersions())
 
-  createWindow()
+  void createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createWindow()
+    }
   })
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
+  }
+})
+
+app.on('before-quit', () => {
+  if (rendererServer) {
+    void rendererServer.close()
+    rendererServer = null
   }
 })

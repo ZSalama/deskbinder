@@ -1,83 +1,279 @@
-import { useEffect, useState } from 'react'
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+import { SignIn, SignOutButton, SignUp, useAuth, useUser } from '@clerk/react'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import wavyLines from './assets/wavy-lines.svg'
-import type { AppVersions } from '../../shared/ipc'
+
+const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 function App(): React.JSX.Element {
-  const [versions, setVersions] = useState<AppVersions | null>(null)
-  const [pingState, setPingState] = useState('Send IPC')
-
-  useEffect(() => {
-    let isMounted = true
-
-    void window.api.getVersions().then((nextVersions) => {
-      if (isMounted) {
-        setVersions(nextVersions)
-      }
-    })
-
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  const ipcHandle = async (): Promise<void> => {
-    const result = await window.api.ping()
-    setPingState(result)
+  if (!publishableKey) {
+    return <ConfigurationError />
   }
 
   return (
-    <main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-6 py-12">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(8,126,164,0.22),transparent_32%),radial-gradient(circle_at_80%_20%,rgba(49,120,198,0.22),transparent_26%),linear-gradient(180deg,rgba(10,14,22,0.7),rgba(12,17,27,0.92))]" />
+    <div className="min-h-screen bg-[#07131a] text-slate-100">
+      <div className="fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(46,144,250,0.18),transparent_30%),radial-gradient(circle_at_80%_10%,rgba(16,185,129,0.14),transparent_28%),linear-gradient(180deg,#061018_0%,#07131a_42%,#020608_100%)]" />
       <div
-        className="absolute inset-0 bg-cover bg-center opacity-35"
+        className="fixed inset-0 opacity-20 mix-blend-screen"
         style={{ backgroundImage: `url(${wavyLines})` }}
       />
 
-      <section className="relative z-10 flex w-full max-w-3xl flex-col items-center rounded-[2rem] border border-white/10 bg-white/6 px-8 py-10 text-center shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:px-12">
-        <img
-          alt="logo"
-          className="mb-6 h-24 w-24 select-none transition duration-300 hover:drop-shadow-[0_0_1.2em_rgba(105,136,230,0.66)] sm:h-32 sm:w-32"
-          src={electronLogo}
-        />
-        <div className="mb-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/55">
-          Powered by electron-vite
-        </div>
-        <h1 className="max-w-2xl text-3xl font-semibold tracking-tight text-white sm:text-5xl">
-          Build an Electron app with{' '}
-          <span className="bg-linear-[315deg,#087ea4_55%,#7c93ee] bg-clip-text text-transparent">
-            React
-          </span>{' '}
-          and{' '}
-          <span className="bg-linear-[315deg,#3178c6_45%,#f0dc4e] bg-clip-text text-transparent">
-            TypeScript
-          </span>
-        </h1>
-        <p className="mt-5 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
-          Press <code>F12</code> to open the developer tools and inspect the renderer.
+      <main className="relative z-10 min-h-screen px-4 py-6 sm:px-6 sm:py-8">
+        <Routes>
+          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/sign-in/*" element={<AuthPage mode="sign-in" />} />
+          <Route path="/sign-up/*" element={<AuthPage mode="sign-up" />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate replace to="/" />} />
+        </Routes>
+      </main>
+    </div>
+  )
+}
+
+function ConfigurationError(): React.JSX.Element {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#061018] px-6 text-slate-100">
+      <section className="w-full max-w-xl rounded-[28px] border border-amber-300/20 bg-amber-100/10 p-8 shadow-2xl backdrop-blur">
+        <p className="text-xs font-semibold uppercase tracking-[0.32em] text-amber-200/80">
+          Clerk setup required
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <a
-            className="rounded-full border border-white/12 bg-white/10 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 hover:bg-white/16"
-            href="https://electron-vite.org/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Documentation
-          </a>
-          <button
-            type="button"
-            className="cursor-pointer rounded-full border border-cyan-300/20 bg-cyan-400/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200/30 hover:bg-cyan-300/16"
-            onClick={ipcHandle}
-          >
-            {pingState}
-          </button>
-        </div>
-        <Versions versions={versions} />
+        <h1 className="mt-4 text-3xl font-semibold text-white">Add your publishable key</h1>
+        <p className="mt-4 text-sm leading-6 text-slate-200/80">
+          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> in your environment before starting the app.
+        </p>
       </section>
     </main>
   )
+}
+
+function HomeRedirect(): React.JSX.Element {
+  const { isLoaded, isSignedIn } = useAuth()
+
+  if (!isLoaded) {
+    return <CenteredStatus message="Loading authentication…" />
+  }
+
+  return <Navigate replace to={isSignedIn ? '/dashboard' : '/sign-in'} />
+}
+
+function ProtectedRoute({ children }: { children: React.JSX.Element }): React.JSX.Element {
+  const { isLoaded, isSignedIn } = useAuth()
+
+  if (!isLoaded) {
+    return <CenteredStatus message="Loading your workspace…" />
+  }
+
+  if (!isSignedIn) {
+    return <Navigate replace to="/sign-in" />
+  }
+
+  return children
+}
+
+function AuthPage({ mode }: { mode: 'sign-in' | 'sign-up' }): React.JSX.Element {
+  const { isLoaded, isSignedIn } = useAuth()
+
+  if (!isLoaded) {
+    return <CenteredStatus message="Preparing authentication…" />
+  }
+
+  if (isSignedIn) {
+    return <Navigate replace to="/dashboard" />
+  }
+
+  return (
+    <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center">
+      <div className="grid w-full gap-6 overflow-hidden rounded-[32px] border border-white/10 bg-slate-950/70 shadow-[0_32px_120px_rgba(0,0,0,0.45)] backdrop-blur-2xl lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="flex flex-col justify-between border-b border-white/8 p-8 sm:p-10 lg:border-r lg:border-b-0 lg:p-12">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.34em] text-cyan-200/72">
+              Deskbinder
+            </p>
+            <h1 className="mt-6 max-w-md text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+              Keep your desk in sync with one secure account.
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-7 text-slate-300/78">
+              Create an account or sign in to access your dashboard. This first version only shows
+              account details, but the auth flow is ready for the rest of the app.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-4 sm:grid-cols-2">
+            <FeatureCard
+              eyebrow="Account"
+              title="Email and password"
+              text="Clerk handles sign-up, sign-in, verification, and session state inside the renderer."
+            />
+            <FeatureCard
+              eyebrow="Security"
+              title="Electron-safe boundary"
+              text="Authentication lives in the UI layer while main and preload stay locked down."
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center p-6 sm:p-8 lg:p-10">
+          {mode === 'sign-in' ? (
+            <SignIn
+              path="/sign-in"
+              routing="path"
+              signUpUrl="/sign-up"
+              fallback={<CenteredStatus compact message="Loading sign in…" />}
+              appearance={clerkAppearance}
+            />
+          ) : (
+            <SignUp
+              path="/sign-up"
+              routing="path"
+              signInUrl="/sign-in"
+              fallback={<CenteredStatus compact message="Loading sign up…" />}
+              appearance={clerkAppearance}
+            />
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function DashboardPage(): React.JSX.Element {
+  const { user } = useUser()
+
+  if (!user) {
+    return <CenteredStatus message="Loading your dashboard…" />
+  }
+
+  const createdAt = new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(user.createdAt ?? undefined)
+
+  return (
+    <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center">
+      <div className="w-full rounded-[32px] border border-white/10 bg-slate-950/72 p-6 shadow-[0_32px_120px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-8 lg:p-10">
+        <div className="flex flex-col gap-6 border-b border-white/10 pb-6 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-4">
+            <img
+              alt={
+                user.fullName ?? user.username ?? user.primaryEmailAddress?.emailAddress ?? 'User'
+              }
+              className="h-16 w-16 rounded-2xl border border-white/10 object-cover shadow-lg"
+              src={user.imageUrl}
+            />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.34em] text-emerald-200/72">
+                Dashboard
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+                {user.fullName ?? user.username ?? 'Account'}
+              </h1>
+              <p className="mt-2 text-sm text-slate-300/78">
+                Signed in as {user.primaryEmailAddress?.emailAddress ?? 'unknown email'}
+              </p>
+            </div>
+          </div>
+
+          <SignOutButton>
+            <button
+              type="button"
+              className="cursor-pointer rounded-full border border-white/12 bg-white/8 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/22 hover:bg-white/14"
+            >
+              Sign out
+            </button>
+          </SignOutButton>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <InfoCard label="User ID" value={user.id} />
+          <InfoCard
+            label="Primary email"
+            value={user.primaryEmailAddress?.emailAddress ?? 'Not set'}
+          />
+          <InfoCard label="Username" value={user.username ?? 'Not set'} />
+          <InfoCard label="Created" value={createdAt} />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function FeatureCard({
+  eyebrow,
+  text,
+  title
+}: {
+  eyebrow: string
+  text: string
+  title: string
+}): React.JSX.Element {
+  return (
+    <article className="rounded-[24px] border border-white/8 bg-white/5 p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-300/56">
+        {eyebrow}
+      </p>
+      <h2 className="mt-3 text-lg font-medium text-white">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-300/75">{text}</p>
+    </article>
+  )
+}
+
+function InfoCard({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <article className="rounded-[24px] border border-white/8 bg-white/5 p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-300/56">
+        {label}
+      </p>
+      <p className="mt-3 break-words text-sm leading-6 text-white">{value}</p>
+    </article>
+  )
+}
+
+function CenteredStatus({
+  compact = false,
+  message
+}: {
+  compact?: boolean
+  message: string
+}): React.JSX.Element {
+  return (
+    <div
+      className={
+        compact
+          ? 'flex min-h-[520px] w-full items-center justify-center rounded-[28px] border border-white/8 bg-white/4 px-6 text-center text-sm text-slate-200/80'
+          : 'flex min-h-[calc(100vh-3rem)] items-center justify-center text-center text-sm text-slate-200/80'
+      }
+    >
+      {message}
+    </div>
+  )
+}
+
+const clerkAppearance = {
+  elements: {
+    cardBox:
+      'w-full rounded-[28px] border border-white/8 bg-white/5 shadow-none backdrop-blur md:min-w-[420px]',
+    card: 'bg-transparent shadow-none',
+    footerActionLink: 'text-cyan-200 hover:text-cyan-100',
+    formButtonPrimary:
+      'bg-cyan-400 text-slate-950 shadow-none hover:bg-cyan-300 focus-visible:ring-cyan-200',
+    formFieldInput:
+      'rounded-xl border border-white/10 bg-slate-900/80 text-white placeholder:text-slate-500 focus:border-cyan-300 focus:ring-cyan-300',
+    formFieldLabel: 'text-slate-200',
+    headerTitle: 'text-white',
+    headerSubtitle: 'text-slate-300',
+    identityPreviewText: 'text-white',
+    identityPreviewEditButton: 'text-cyan-200',
+    socialButtonsBlockButton:
+      'border border-white/10 bg-slate-900/80 text-white hover:bg-slate-900',
+    socialButtonsBlockButtonText: 'text-white'
+  }
 }
 
 export default App
