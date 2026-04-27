@@ -1,9 +1,31 @@
+import { useEffect, useState } from 'react'
 import Versions from './components/Versions'
 import electronLogo from './assets/electron.svg'
 import wavyLines from './assets/wavy-lines.svg'
+import type { AppVersions } from '../../shared/ipc'
 
 function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+  const [versions, setVersions] = useState<AppVersions | null>(null)
+  const [pingState, setPingState] = useState('Send IPC')
+
+  useEffect(() => {
+    let isMounted = true
+
+    void window.api.getVersions().then((nextVersions) => {
+      if (isMounted) {
+        setVersions(nextVersions)
+      }
+    })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const ipcHandle = async (): Promise<void> => {
+    const result = await window.api.ping()
+    setPingState(result)
+  }
 
   return (
     <main className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-6 py-12">
@@ -44,16 +66,15 @@ function App(): React.JSX.Element {
           >
             Documentation
           </a>
-          <a
+          <button
+            type="button"
             className="cursor-pointer rounded-full border border-cyan-300/20 bg-cyan-400/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200/30 hover:bg-cyan-300/16"
-            target="_blank"
-            rel="noreferrer"
             onClick={ipcHandle}
           >
-            Send IPC
-          </a>
+            {pingState}
+          </button>
         </div>
-        <Versions />
+        <Versions versions={versions} />
       </section>
     </main>
   )

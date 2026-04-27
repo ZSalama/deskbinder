@@ -1,7 +1,13 @@
-import { useState } from 'react'
+import type { AppVersions } from '../../../shared/ipc'
 
-function Versions(): React.JSX.Element {
-  const [versions] = useState(window.electron.process.versions)
+interface VersionsProps {
+  versions: AppVersions | null
+}
+
+function Versions({ versions }: VersionsProps): React.JSX.Element | null {
+  if (!versions) {
+    return null
+  }
 
   return (
     <ul className="mt-8 hidden overflow-hidden rounded-full border border-white/10 bg-black/30 font-mono text-xs text-white/75 backdrop-blur-xl sm:inline-flex">
