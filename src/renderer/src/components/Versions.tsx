@@ -4,10 +4,10 @@ function Versions(): React.JSX.Element {
   const [versions] = useState(window.electron.process.versions)
 
   return (
-    <ul className="versions">
-      <li className="electron-version">Electron v{versions.electron}</li>
-      <li className="chrome-version">Chromium v{versions.chrome}</li>
-      <li className="node-version">Node v{versions.node}</li>
+    <ul className="mt-8 hidden overflow-hidden rounded-full border border-white/10 bg-black/30 font-mono text-xs text-white/75 backdrop-blur-xl sm:inline-flex">
+      <li className="border-r border-white/10 px-4 py-3">Electron v{versions.electron}</li>
+      <li className="border-r border-white/10 px-4 py-3">Chromium v{versions.chrome}</li>
+      <li className="px-4 py-3">Node v{versions.node}</li>
     </ul>
   )
 }
