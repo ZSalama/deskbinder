@@ -3,7 +3,8 @@ import { IPC_CHANNELS, type DeskbinderApi } from '../shared/ipc'
 
 const api: DeskbinderApi = {
   ping: () => ipcRenderer.invoke(IPC_CHANNELS.ping),
-  getVersions: () => ipcRenderer.invoke(IPC_CHANNELS.getVersions)
+  getVersions: () => ipcRenderer.invoke(IPC_CHANNELS.getVersions),
+  pickFolder: () => ipcRenderer.invoke(IPC_CHANNELS.pickFolder)
 }
 
 if (process.contextIsolated) {

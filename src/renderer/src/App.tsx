@@ -1,5 +1,7 @@
 import { SignIn, SignOutButton, SignUp, useAuth, useUser } from '@clerk/react'
+import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
 import wavyLines from './assets/wavy-lines.svg'
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -145,6 +147,8 @@ function AuthPage({ mode }: { mode: 'sign-in' | 'sign-up' }): React.JSX.Element 
 
 function DashboardPage(): React.JSX.Element {
   const { user } = useUser()
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
+  const [isPickingFolder, setIsPickingFolder] = useState(false)
 
   if (!user) {
     return <CenteredStatus message="Loading your dashboard…" />
@@ -154,6 +158,20 @@ function DashboardPage(): React.JSX.Element {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(user.createdAt ?? undefined)
+
+  async function handlePickFolder(): Promise<void> {
+    setIsPickingFolder(true)
+
+    try {
+      const result = await window.api.pickFolder()
+
+      if (!result.canceled) {
+        setSelectedFolder(result.path)
+      }
+    } finally {
+      setIsPickingFolder(false)
+    }
+  }
 
   return (
     <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center">
@@ -181,12 +199,13 @@ function DashboardPage(): React.JSX.Element {
           </div>
 
           <SignOutButton>
-            <button
+            <Button
               type="button"
-              className="cursor-pointer rounded-full border border-white/12 bg-white/8 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/22 hover:bg-white/14"
+              variant="outline"
+              className="cursor-pointer rounded-full border-white/12 bg-white/8 px-5 text-white hover:border-white/22 hover:bg-white/14 hover:text-white"
             >
               Sign out
-            </button>
+            </Button>
           </SignOutButton>
         </div>
 
@@ -198,6 +217,38 @@ function DashboardPage(): React.JSX.Element {
           />
           <InfoCard label="Username" value={user.username ?? 'Not set'} />
           <InfoCard label="Created" value={createdAt} />
+        </div>
+
+        <div className="mt-6 rounded-[24px] border border-cyan-200/10 bg-cyan-300/5 p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-200/72">
+                Workspace Folder
+              </p>
+              <h2 className="mt-3 text-lg font-medium text-white">Pick a folder from your machine</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-300/75">
+                The renderer requests a single folder through the Electron main process.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              className="cursor-pointer rounded-full bg-cyan-300 px-5 text-slate-950 hover:bg-cyan-200"
+              disabled={isPickingFolder}
+              onClick={() => void handlePickFolder()}
+            >
+              {isPickingFolder ? 'Opening…' : 'Choose folder'}
+            </Button>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-white/8 bg-slate-950/70 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-slate-300/56">
+              Selected folder
+            </p>
+            <p className="mt-3 break-all text-sm leading-6 text-white">
+              {selectedFolder ?? 'No folder selected yet'}
+            </p>
+          </div>
         </div>
       </div>
     </section>

@@ -1,7 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { IPC_CHANNELS, type AppVersions } from '../shared/ipc'
+import { IPC_CHANNELS, type AppVersions, type FolderPickResult } from '../shared/ipc'
 import { createRendererServer, type RendererServer } from './services/rendererServer'
 import icon from '../../resources/icon.png?asset'
 
@@ -38,6 +38,22 @@ function getAppVersions(): AppVersions {
     chrome: process.versions.chrome,
     electron: process.versions.electron,
     node: process.versions.node
+  }
+}
+
+async function pickFolder(window: BrowserWindow | null): Promise<FolderPickResult> {
+  const options: OpenDialogOptions = {
+    title: 'Select a folder',
+    buttonLabel: 'Select folder',
+    properties: ['openDirectory', 'createDirectory']
+  }
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options)
+
+  return {
+    canceled: result.canceled,
+    path: result.canceled ? null : (result.filePaths[0] ?? null)
   }
 }
 
@@ -126,6 +142,9 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.ping, () => 'pong')
   ipcMain.handle(IPC_CHANNELS.getVersions, () => getAppVersions())
+  ipcMain.handle(IPC_CHANNELS.pickFolder, (event) => {
+    return pickFolder(BrowserWindow.fromWebContents(event.sender))
+  })
 
   void createWindow()
 

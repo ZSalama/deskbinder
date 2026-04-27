@@ -143,3 +143,9 @@ Suggested layout:
 - Be explicit
 - Prefer capability-specific APIs over convenience
 - Secure defaults beat flexible defaults
+
+---
+
+## UI rules
+
+- Use Shadcn components whenever possible
