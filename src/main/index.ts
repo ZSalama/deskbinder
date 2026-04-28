@@ -81,8 +81,10 @@ async function createWindow(): Promise<void> {
     : await getProductionRendererUrl()
   const allowedOrigin = rendererUrl.origin
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1280,
+    height: 800,
+    minWidth: 1024,
+    minHeight: 720,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),

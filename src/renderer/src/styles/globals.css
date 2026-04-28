@@ -124,9 +124,16 @@
     margin: 0;
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-width: 1024px;
+  }
+
   body {
     @apply bg-background text-foreground;
-    min-height: 100vh;
+    overflow: hidden;
     line-height: 1.6;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;

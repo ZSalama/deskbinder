@@ -149,3 +149,9 @@ Suggested layout:
 ## UI rules
 
 - Use Shadcn components whenever possible
+
+---
+
+## Project information
+
+**Deskbinder** is a Linux-first Electron + Vite + React + TypeScript desktop app that acts as a local worker for running Codex jobs against local repositories.
