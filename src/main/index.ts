@@ -4,6 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS, type AppVersions, type FolderPickResult } from '../shared/ipc'
 import { LocalConfigStore } from './services/localConfig'
 import { createRendererServer, type RendererServer } from './services/rendererServer'
+import { deleteWorkspace } from './services/deleteWorkspace'
+import { runWorkspaceScript } from './services/workspaceScript'
 import icon from '../../resources/icon.png?asset'
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['https:', 'mailto:'])
@@ -181,6 +183,94 @@ app.whenReady().then(() => {
     }
 
     return localConfigStore.updateAppSettings(autoRunEnabled)
+  })
+  ipcMain.handle(IPC_CHANNELS.runWorkspaceScript, async (_, input) => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    const repoId = typeof input?.repoId === 'string' ? input.repoId.trim() : ''
+    const branchName = typeof input?.branchName === 'string' ? input.branchName.trim() : ''
+    const currentConfig = await localConfigStore.read()
+    const sourceRepo = currentConfig.repos.find((repo) => repo.id === repoId)
+
+    if (!sourceRepo) {
+      return {
+        config: currentConfig,
+        selectedRepoId: null,
+        result: {
+          ok: false,
+          agentRunnable: false,
+          branchName,
+          failureStep: 'repo_lookup',
+          errorMessage: 'Selected repo is no longer configured.'
+        }
+      }
+    }
+
+    const result = await runWorkspaceScript({
+      branchName,
+      repo: sourceRepo
+    })
+
+    if (result.ok && result.agentRunnable && result.workspacePath) {
+      try {
+        const registration = await localConfigStore.registerWorkspaceRepo(
+          sourceRepo,
+          result.workspacePath,
+          result.workspaceName,
+          {
+            branchName: result.branchName,
+            processIds: [result.processes?.dev, result.processes?.convex].filter(
+              (pid): pid is number => typeof pid === 'number' && Number.isInteger(pid) && pid > 1
+            )
+          }
+        )
+
+        return {
+          config: registration.config,
+          selectedRepoId: registration.repoId,
+          result
+        }
+      } catch (error) {
+        return {
+          config: await localConfigStore.read(),
+          selectedRepoId: sourceRepo.id,
+          result: {
+            ...result,
+            ok: false,
+            agentRunnable: false,
+            failureStep: 'workspace_validation',
+            errorMessage:
+              error instanceof Error
+                ? error.message
+                : 'Returned workspace path could not be validated.'
+          }
+        }
+      }
+    }
+
+    return {
+      config: currentConfig,
+      selectedRepoId: sourceRepo.id,
+      result
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.deleteWorkspace, async (_, input) => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    const repoId = typeof input?.repoId === 'string' ? input.repoId.trim() : ''
+
+    if (!repoId) {
+      throw new Error('Invalid workspace selection.')
+    }
+
+    return deleteWorkspace({
+      localConfigStore,
+      repoId
+    })
   })
 
   void createWindow()

@@ -3,18 +3,24 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { DashboardRepo } from './types'
 
+function getWorkspaceScriptPath(repo: DashboardRepo): string {
+  return repo.workspaceScriptPath.trim() || `${repo.repoPath}/ainewworkspace`
+}
+
 type WorkspaceHeaderProps = {
   activeRepo: DashboardRepo | null
   authEmail: string | null
   authReady: boolean
-  onNewJob: () => void
+  isRunningWorkspaceScript: boolean
+  onNewWorkspace: () => void
 }
 
 export function WorkspaceHeader({
   activeRepo,
   authEmail,
   authReady,
-  onNewJob
+  isRunningWorkspaceScript,
+  onNewWorkspace
 }: WorkspaceHeaderProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-5">
@@ -32,7 +38,9 @@ export function WorkspaceHeader({
             ) : null}
             <Badge
               variant="outline"
-              className={authReady ? 'border-cyan-300/20 text-cyan-100' : 'border-white/10 text-slate-300'}
+              className={
+                authReady ? 'border-cyan-300/20 text-cyan-100' : 'border-white/10 text-slate-300'
+              }
             >
               {authReady ? 'Convex Auth Ready' : 'Connecting Convex Auth'}
             </Badge>
@@ -52,10 +60,11 @@ export function WorkspaceHeader({
           <Button
             type="button"
             className="h-10 rounded-2xl bg-white text-slate-950 hover:bg-slate-100"
-            onClick={onNewJob}
+            disabled={isRunningWorkspaceScript}
+            onClick={onNewWorkspace}
           >
             <Plus className="size-4" />
-            New Job
+            {isRunningWorkspaceScript ? 'Running Script...' : 'New Workspace'}
           </Button>
         ) : null}
       </div>
@@ -77,6 +86,9 @@ export function WorkspaceHeader({
           ) : null}
           <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
             {activeRepo.repoPath}
+          </code>
+          <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
+            {getWorkspaceScriptPath(activeRepo)}
           </code>
         </div>
       ) : null}

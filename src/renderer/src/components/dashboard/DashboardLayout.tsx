@@ -6,10 +6,15 @@ import { RepoSettingsDialog } from './RepoSettingsDialog'
 import { RepoSidebar } from './RepoSidebar'
 import { EmptyWorkspaceState } from './EmptyWorkspaceState'
 import { PromptComposer } from './PromptComposer'
+import { RunWorkspaceDialog } from './RunWorkspaceDialog'
 import { TranscriptPanel } from './TranscriptPanel'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import type { DashboardRepo, TranscriptItem } from './types'
-import type { DeskbinderConfig, RepoSettings } from '../../../../shared/deskbinder'
+import type {
+  DeskbinderConfig,
+  RepoSettings,
+  WorkspaceScriptResult
+} from '../../../../shared/deskbinder'
 
 function getPathBasename(path: string): string {
   const normalizedPath = path.replace(/\/+$/, '')
@@ -20,12 +25,28 @@ function getPathBasename(path: string): string {
 function toDashboardRepo(repo: RepoSettings): DashboardRepo {
   return {
     ...repo,
-    status: repo.workspaceScriptPath.trim() ? 'ready' : 'attention'
+    status: 'ready'
+  }
+}
+
+function toRepoSettings(repo: DashboardRepo): RepoSettings {
+  return {
+    id: repo.id,
+    name: repo.name,
+    repoPath: repo.repoPath,
+    workspaceScriptPath: repo.workspaceScriptPath,
+    defaultScriptArgs: repo.defaultScriptArgs,
+    agentExecutable: repo.agentExecutable,
+    deleted: repo.deleted,
+    sourceRepoId: repo.sourceRepoId,
+    sourceRepoPath: repo.sourceRepoPath,
+    workspaceBranchName: repo.workspaceBranchName,
+    workspaceProcessIds: repo.workspaceProcessIds
   }
 }
 
 function buildDashboardRepos(config: DeskbinderConfig | null): DashboardRepo[] {
-  return (config?.repos ?? []).map(toDashboardRepo)
+  return (config?.repos ?? []).filter((repo) => !repo.deleted).map(toDashboardRepo)
 }
 
 function buildTranscript(repo: DashboardRepo): TranscriptItem[] {
@@ -56,6 +77,11 @@ type RepoSetupNotice = {
   message: string
 }
 
+type WorkspaceScriptOutput = {
+  repoId: string
+  result: WorkspaceScriptResult
+}
+
 export function DashboardLayout(): React.JSX.Element {
   const { user } = useUser()
   const viewer = useQuery(api.auth.viewer, {})
@@ -67,8 +93,13 @@ export function DashboardLayout(): React.JSX.Element {
   const [draftPrompt, setDraftPrompt] = useState('')
   const [repoForSettings, setRepoForSettings] = useState<DashboardRepo | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [jobHint, setJobHint] = useState<string | null>(null)
+  const [isRunWorkspaceDialogOpen, setIsRunWorkspaceDialogOpen] = useState(false)
+  const [isRunningWorkspaceScript, setIsRunningWorkspaceScript] = useState(false)
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
   const [repoSetupNotice, setRepoSetupNotice] = useState<RepoSetupNotice | null>(null)
+  const [workspaceScriptOutput, setWorkspaceScriptOutput] = useState<WorkspaceScriptOutput | null>(
+    null
+  )
   const repos = useMemo(() => buildDashboardRepos(config), [config])
 
   useEffect(() => {
@@ -82,7 +113,9 @@ export function DashboardLayout(): React.JSX.Element {
         }
 
         setConfig(nextConfig)
-        setSelectedRepoId((currentSelectedRepoId) => currentSelectedRepoId ?? nextConfig.repos[0]?.id ?? null)
+        setSelectedRepoId(
+          (currentSelectedRepoId) => currentSelectedRepoId ?? nextConfig.repos[0]?.id ?? null
+        )
       })
       .finally(() => {
         if (isMounted) {
@@ -94,23 +127,14 @@ export function DashboardLayout(): React.JSX.Element {
       isMounted = false
     }
   }, [])
-
-  useEffect(() => {
-    if (!repos.length) {
-      if (selectedRepoId !== null) {
-        setSelectedRepoId(null)
-      }
-      return
-    }
-
-    if (!selectedRepoId || !repos.some((repo) => repo.id === selectedRepoId)) {
-      setSelectedRepoId(repos[0]?.id ?? null)
-    }
-  }, [repos, selectedRepoId])
+  const resolvedSelectedRepoId =
+    selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
+      ? selectedRepoId
+      : (repos[0]?.id ?? null)
 
   const activeRepo = useMemo(
-    () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
-    [repos, selectedRepoId]
+    () => repos.find((repo) => repo.id === resolvedSelectedRepoId) ?? null,
+    [repos, resolvedSelectedRepoId]
   )
 
   const transcript = activeRepo ? buildTranscript(activeRepo) : []
@@ -157,8 +181,7 @@ export function DashboardLayout(): React.JSX.Element {
   }
 
   async function handleSaveRepo(nextRepo: DashboardRepo): Promise<void> {
-    const { status: _status, ...repoSettings } = nextRepo
-    const nextConfig = await window.api.updateRepo(repoSettings)
+    const nextConfig = await window.api.updateRepo(toRepoSettings(nextRepo))
     setConfig(nextConfig)
   }
 
@@ -167,8 +190,78 @@ export function DashboardLayout(): React.JSX.Element {
     setConfig(nextConfig)
   }
 
-  function handleNewJob(): void {
-    setJobHint('New Job is a placeholder in this UI pass. No draft or process starts yet.')
+  async function handleDeleteWorkspace(repo: DashboardRepo): Promise<void> {
+    setIsDeletingWorkspace(true)
+
+    try {
+      const response = await window.api.deleteWorkspace({
+        repoId: repo.id
+      })
+
+      setConfig(response.config)
+      setSelectedRepoId(response.selectedRepoId)
+      setWorkspaceScriptOutput((currentOutput) =>
+        currentOutput?.repoId === response.deletedRepoId ? null : currentOutput
+      )
+      setRepoForSettings(null)
+      setIsSettingsOpen(false)
+      setRepoSetupNotice({
+        tone: 'success',
+        message: response.summary.message
+      })
+    } catch (error) {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to delete that workspace.'
+      })
+    } finally {
+      setIsDeletingWorkspace(false)
+    }
+  }
+
+  function handleOpenRunWorkspaceDialog(): void {
+    if (!activeRepo) {
+      return
+    }
+
+    setIsRunWorkspaceDialogOpen(true)
+  }
+
+  async function handleRunWorkspaceScript(branchName: string): Promise<void> {
+    if (!activeRepo) {
+      return
+    }
+
+    setIsRunningWorkspaceScript(true)
+
+    try {
+      const response = await window.api.runWorkspaceScript({
+        repoId: activeRepo.id,
+        branchName
+      })
+      const nextSelectedRepoId = response.selectedRepoId ?? activeRepo.id
+
+      setConfig(response.config)
+      setSelectedRepoId(nextSelectedRepoId)
+      setWorkspaceScriptOutput({
+        repoId: nextSelectedRepoId,
+        result: response.result
+      })
+      setIsRunWorkspaceDialogOpen(false)
+      setRepoSetupNotice(
+        response.result.ok
+          ? {
+              tone: 'success',
+              message: `Workspace ready for branch ${response.result.branchName}.`
+            }
+          : {
+              tone: 'error',
+              message: response.result.errorMessage ?? 'Workspace script failed.'
+            }
+      )
+    } finally {
+      setIsRunningWorkspaceScript(false)
+    }
   }
 
   if (isLoadingConfig) {
@@ -194,7 +287,7 @@ export function DashboardLayout(): React.JSX.Element {
             onSetupRepo={() => void handlePickFolder()}
             onToggleAutoRun={(nextValue) => void handleToggleAutoRun(nextValue)}
             repos={repos}
-            selectedRepoId={selectedRepoId}
+            selectedRepoId={resolvedSelectedRepoId}
           />
 
           <section className="flex min-h-[720px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/72 shadow-[0_28px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
@@ -202,14 +295,9 @@ export function DashboardLayout(): React.JSX.Element {
               activeRepo={activeRepo}
               authEmail={viewer?.email ?? user?.primaryEmailAddress?.emailAddress ?? null}
               authReady={viewer !== undefined}
-              onNewJob={handleNewJob}
+              isRunningWorkspaceScript={isRunningWorkspaceScript}
+              onNewWorkspace={handleOpenRunWorkspaceDialog}
             />
-
-            {jobHint ? (
-              <div className="border-b border-cyan-300/12 bg-cyan-300/7 px-6 py-3 text-sm text-cyan-50">
-                {jobHint}
-              </div>
-            ) : null}
 
             {repoSetupNotice ? (
               <div
@@ -220,6 +308,34 @@ export function DashboardLayout(): React.JSX.Element {
                 }
               >
                 {repoSetupNotice.message}
+              </div>
+            ) : null}
+
+            {activeRepo &&
+            workspaceScriptOutput &&
+            workspaceScriptOutput.repoId === activeRepo.id ? (
+              <div
+                className={
+                  workspaceScriptOutput.result.ok
+                    ? 'border-b border-emerald-300/12 bg-emerald-300/6 px-6 py-5'
+                    : 'border-b border-rose-300/12 bg-rose-300/6 px-6 py-5'
+                }
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+                      Workspace Script Result
+                    </p>
+                    <p className="mt-2 text-sm text-slate-100">
+                      {workspaceScriptOutput.result.ok
+                        ? `Branch ${workspaceScriptOutput.result.branchName} completed.`
+                        : `Branch ${workspaceScriptOutput.result.branchName} failed.`}
+                    </p>
+                  </div>
+                </div>
+                <pre className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/72 p-4 text-xs leading-6 text-slate-200">
+                  {JSON.stringify(workspaceScriptOutput.result, null, 2)}
+                </pre>
               </div>
             ) : null}
 
@@ -235,10 +351,19 @@ export function DashboardLayout(): React.JSX.Element {
       </section>
 
       <RepoSettingsDialog
+        isDeletingWorkspace={isDeletingWorkspace}
+        onDeleteWorkspace={(repo) => void handleDeleteWorkspace(repo)}
         onOpenChange={setIsSettingsOpen}
         onSave={(repo) => void handleSaveRepo(repo)}
         open={isSettingsOpen}
         repo={repoForSettings}
+      />
+      <RunWorkspaceDialog
+        isSubmitting={isRunningWorkspaceScript}
+        onOpenChange={setIsRunWorkspaceDialogOpen}
+        onSubmit={(branchName) => void handleRunWorkspaceScript(branchName)}
+        open={isRunWorkspaceDialogOpen}
+        repo={activeRepo}
       />
     </>
   )

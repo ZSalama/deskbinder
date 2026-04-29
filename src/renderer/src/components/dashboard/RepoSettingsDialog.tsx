@@ -1,4 +1,15 @@
 import { useState } from 'react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,6 +23,8 @@ import { Input } from '@/components/ui/input'
 import type { DashboardRepo } from './types'
 
 type RepoSettingsDialogProps = {
+  isDeletingWorkspace?: boolean
+  onDeleteWorkspace: (repo: DashboardRepo) => void
   onOpenChange: (open: boolean) => void
   onSave: (repo: DashboardRepo) => void
   open: boolean
@@ -19,6 +32,8 @@ type RepoSettingsDialogProps = {
 }
 
 export function RepoSettingsDialog({
+  isDeletingWorkspace = false,
+  onDeleteWorkspace,
   onOpenChange,
   onSave,
   open,
@@ -53,6 +68,8 @@ export function RepoSettingsDialog({
   return (
     <RepoSettingsDialogForm
       key={repo.id}
+      isDeletingWorkspace={isDeletingWorkspace}
+      onDeleteWorkspace={onDeleteWorkspace}
       onOpenChange={onOpenChange}
       onSave={onSave}
       open={open}
@@ -62,6 +79,8 @@ export function RepoSettingsDialog({
 }
 
 function RepoSettingsDialogForm({
+  isDeletingWorkspace = false,
+  onDeleteWorkspace,
   onOpenChange,
   onSave,
   open,
@@ -127,7 +146,7 @@ function RepoSettingsDialogForm({
             <Input
               className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
               onChange={(event) => setDraftWorkspaceScriptPath(event.target.value)}
-              placeholder="/home/zack/projects/deskbinder/scripts/setup-workspace.sh"
+              placeholder="ainewworkspace"
               value={draftWorkspaceScriptPath}
             />
           </label>
@@ -157,11 +176,56 @@ function RepoSettingsDialogForm({
           </label>
         </div>
 
+        <div className="border-t border-white/10 px-6 py-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-rose-200/72">
+            Danger Zone
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-300/78">
+            Delete the workspace folder, stop related processes, prune the worktree, delete the
+            branch, and hide this repo from the UI.
+          </p>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                variant="destructive"
+                className="mt-4"
+                disabled={isDeletingWorkspace}
+              >
+                {isDeletingWorkspace ? 'Deleting Workspace...' : 'Delete Workspace'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="border-white/10 bg-slate-950/96 text-slate-100">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete {repo.name}?</AlertDialogTitle>
+                <AlertDialogDescription className="text-slate-300/78">
+                  This removes the worktree folder on disk, kills related processes, deletes the
+                  branch, and soft deletes the workspace from the dashboard list.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="border-white/10 bg-white/3">
+                <AlertDialogCancel className="text-slate-200 hover:bg-white/8 hover:text-white">
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  className="hover:bg-rose-500/18"
+                  onClick={() => onDeleteWorkspace(repo)}
+                >
+                  Delete Workspace
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+
         <DialogFooter className="rounded-b-[inherit] border-white/10 bg-white/3">
           <Button
             type="button"
             variant="ghost"
             className="text-slate-200 hover:bg-white/8 hover:text-white"
+            disabled={isDeletingWorkspace}
             onClick={() => onOpenChange(false)}
           >
             Cancel
@@ -169,6 +233,7 @@ function RepoSettingsDialogForm({
           <Button
             type="button"
             className="bg-cyan-300 text-slate-950 hover:bg-cyan-200"
+            disabled={isDeletingWorkspace}
             onClick={handleSave}
           >
             Save Changes
