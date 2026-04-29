@@ -68,13 +68,19 @@ function RepoSettingsDialogForm({
   repo
 }: RepoSettingsDialogProps & { repo: DashboardRepo }): React.JSX.Element {
   const [draftName, setDraftName] = useState(repo.name)
-  const [draftPath, setDraftPath] = useState(repo.path)
+  const [draftRepoPath, setDraftRepoPath] = useState(repo.repoPath)
+  const [draftWorkspaceScriptPath, setDraftWorkspaceScriptPath] = useState(repo.workspaceScriptPath)
+  const [draftDefaultScriptArgs, setDraftDefaultScriptArgs] = useState(repo.defaultScriptArgs ?? '')
+  const [draftAgentExecutable, setDraftAgentExecutable] = useState(repo.agentExecutable ?? 'codex')
 
   function handleSave(): void {
     onSave({
       ...repo,
       name: draftName.trim() || repo.name,
-      path: draftPath.trim() || repo.path
+      repoPath: draftRepoPath.trim() || repo.repoPath,
+      workspaceScriptPath: draftWorkspaceScriptPath.trim(),
+      defaultScriptArgs: draftDefaultScriptArgs.trim() || undefined,
+      agentExecutable: draftAgentExecutable.trim() || 'codex'
     })
     onOpenChange(false)
   }
@@ -85,8 +91,7 @@ function RepoSettingsDialogForm({
         <DialogHeader className="border-b border-white/10 px-6 py-5">
           <DialogTitle className="text-lg text-white">Repo settings</DialogTitle>
           <DialogDescription className="text-slate-300/78">
-            Update the local dashboard title and path for this repo or worktree. This does not
-            persist yet.
+            Update the local repo config stored in your deskbinder JSON file.
           </DialogDescription>
         </DialogHeader>
 
@@ -109,9 +114,45 @@ function RepoSettingsDialogForm({
             </span>
             <Input
               className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
-              onChange={(event) => setDraftPath(event.target.value)}
+              onChange={(event) => setDraftRepoPath(event.target.value)}
               placeholder="/home/zack/projects/deskbinder"
-              value={draftPath}
+              value={draftRepoPath}
+            />
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+              Workspace Script
+            </span>
+            <Input
+              className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
+              onChange={(event) => setDraftWorkspaceScriptPath(event.target.value)}
+              placeholder="/home/zack/projects/deskbinder/scripts/setup-workspace.sh"
+              value={draftWorkspaceScriptPath}
+            />
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+              Default Script Args
+            </span>
+            <Input
+              className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
+              onChange={(event) => setDraftDefaultScriptArgs(event.target.value)}
+              placeholder="--port 3001 --env dev"
+              value={draftDefaultScriptArgs}
+            />
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+              Agent Executable
+            </span>
+            <Input
+              className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
+              onChange={(event) => setDraftAgentExecutable(event.target.value)}
+              placeholder="codex"
+              value={draftAgentExecutable}
             />
           </label>
         </div>

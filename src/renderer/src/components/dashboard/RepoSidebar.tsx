@@ -1,8 +1,8 @@
 import { FolderPlus, LogOut, Sparkles, UserCircle2 } from 'lucide-react'
 import { SignOutButton } from '@clerk/react'
-import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Switch } from '@/components/ui/switch'
 import { RepoListItem } from './RepoListItem'
 import type { DashboardRepo } from './types'
 
@@ -11,9 +11,11 @@ type RepoSidebarProps = {
   accountName: string
   isPickingFolder: boolean
   lastPickedFolder: string | null
+  autoRunEnabled: boolean
   onOpenSettings: (repo: DashboardRepo) => void
   onSelectRepo: (repoId: string) => void
   onSetupRepo: () => void
+  onToggleAutoRun: (nextValue: boolean) => void
   repos: DashboardRepo[]
   selectedRepoId: string | null
 }
@@ -21,35 +23,16 @@ type RepoSidebarProps = {
 export function RepoSidebar({
   accountEmail,
   accountName,
+  autoRunEnabled,
   isPickingFolder,
   lastPickedFolder,
   onOpenSettings,
   onSelectRepo,
   onSetupRepo,
+  onToggleAutoRun,
   repos,
   selectedRepoId
 }: RepoSidebarProps): React.JSX.Element {
-  const repoGroups = useMemo(() => {
-    const childReposByParent = new Map<string, DashboardRepo[]>()
-
-    repos.forEach((repo) => {
-      if (!repo.parentRepoId) {
-        return
-      }
-
-      const currentChildren = childReposByParent.get(repo.parentRepoId) ?? []
-      currentChildren.push(repo)
-      childReposByParent.set(repo.parentRepoId, currentChildren)
-    })
-
-    return repos
-      .filter((repo) => repo.kind === 'main')
-      .map((repo) => ({
-        mainRepo: repo,
-        slaveRepos: childReposByParent.get(repo.id) ?? []
-      }))
-  }, [repos])
-
   return (
     <aside className="sticky top-0 flex h-full min-h-0 min-w-0 flex-col self-start rounded-[28px] border border-white/10 bg-slate-950/72 shadow-[0_28px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
       <div className="border-b border-white/10 px-5 py-5">
@@ -78,31 +61,33 @@ export function RepoSidebar({
 
       <ScrollArea className="min-h-0 flex-1 px-3 py-3">
         <div className="space-y-4 pb-2">
-          {repoGroups.map(({ mainRepo, slaveRepos }) => (
-            <div key={mainRepo.id} className="space-y-1">
-              <RepoListItem
-                isSelected={mainRepo.id === selectedRepoId}
-                onOpenSettings={onOpenSettings}
-                onSelect={onSelectRepo}
-                repo={mainRepo}
-              />
-
-              {slaveRepos.map((repo) => (
-                <RepoListItem
-                  key={repo.id}
-                  depth={1}
-                  isSelected={repo.id === selectedRepoId}
-                  onOpenSettings={onOpenSettings}
-                  onSelect={onSelectRepo}
-                  repo={repo}
-                />
-              ))}
-            </div>
+          {repos.map((repo) => (
+            <RepoListItem
+              key={repo.id}
+              isSelected={repo.id === selectedRepoId}
+              onOpenSettings={onOpenSettings}
+              onSelect={onSelectRepo}
+              repo={repo}
+            />
           ))}
         </div>
       </ScrollArea>
 
       <div className="border-t border-white/10 px-4 py-4">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-[22px] border border-white/8 bg-white/[0.04] px-4 py-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+              Auto Run
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Persisted in local app settings.</p>
+          </div>
+          <Switch
+            aria-label="Toggle auto run"
+            checked={autoRunEnabled}
+            onCheckedChange={onToggleAutoRun}
+          />
+        </div>
+
         <div className="rounded-[22px] border border-white/8 bg-white/[0.04] p-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
             Last Picked Folder

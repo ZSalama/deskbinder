@@ -1,11 +1,8 @@
-export type RepoStatus = 'ready' | 'attention' | 'idle'
+import type { RepoSettings } from '../../../../shared/deskbinder'
 
-export type DashboardRepo = {
-  id: string
-  kind: 'main' | 'slave'
-  name: string
-  parentRepoId: string | null
-  path: string
+export type RepoStatus = 'ready' | 'attention'
+
+export type DashboardRepo = RepoSettings & {
   status: RepoStatus
 }
 

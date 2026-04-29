@@ -1,6 +1,6 @@
 import { useUser } from '@clerk/react'
 import { useQuery } from 'convex/react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../../../../convex/_generated/api'
 import { RepoSettingsDialog } from './RepoSettingsDialog'
 import { RepoSidebar } from './RepoSidebar'
@@ -9,49 +9,24 @@ import { PromptComposer } from './PromptComposer'
 import { TranscriptPanel } from './TranscriptPanel'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import type { DashboardRepo, TranscriptItem } from './types'
+import type { DeskbinderConfig, RepoSettings } from '../../../../shared/deskbinder'
 
-const initialRepos: DashboardRepo[] = [
-  {
-    id: 'repo-deskbinder',
-    kind: 'main',
-    name: 'deskbinder',
-    parentRepoId: null,
-    path: '/home/zack/Documents/web_dev/deskbinder',
-    status: 'ready'
-  },
-  {
-    id: 'repo-deskbinder-main',
-    kind: 'slave',
-    name: 'main',
-    parentRepoId: 'repo-deskbinder',
-    path: '/home/zack/Documents/web_dev/deskbinder',
-    status: 'ready'
-  },
-  {
-    id: 'repo-deskbinder-feature-agent-shell',
-    kind: 'slave',
-    name: 'feature/agent-shell',
-    parentRepoId: 'repo-deskbinder',
-    path: '/home/zack/Documents/web_dev/deskbinder/.worktrees/feature-agent-shell',
-    status: 'attention'
-  },
-  {
-    id: 'repo-docs-site',
-    kind: 'main',
-    name: 'docs-site',
-    parentRepoId: null,
-    path: '/home/zack/Documents/web_dev/docs-site',
-    status: 'idle'
-  },
-  {
-    id: 'repo-docs-site-main',
-    kind: 'slave',
-    name: 'main',
-    parentRepoId: 'repo-docs-site',
-    path: '/home/zack/Documents/web_dev/docs-site',
-    status: 'idle'
+function getPathBasename(path: string): string {
+  const normalizedPath = path.replace(/\/+$/, '')
+  const segments = normalizedPath.split('/')
+  return segments[segments.length - 1] || path
+}
+
+function toDashboardRepo(repo: RepoSettings): DashboardRepo {
+  return {
+    ...repo,
+    status: repo.workspaceScriptPath.trim() ? 'ready' : 'attention'
   }
-]
+}
+
+function buildDashboardRepos(config: DeskbinderConfig | null): DashboardRepo[] {
+  return (config?.repos ?? []).map(toDashboardRepo)
+}
 
 function buildTranscript(repo: DashboardRepo): TranscriptItem[] {
   return [
@@ -71,22 +46,67 @@ function buildTranscript(repo: DashboardRepo): TranscriptItem[] {
       id: `${repo.id}-system`,
       role: 'system',
       timestampLabel: 'Workspace status',
-      body: 'Main process boundary preserved. Folder picker is available through preload. Repo persistence, validation, and execution wiring are intentionally deferred.'
+      body: 'Main process boundary preserved. Folder picker, repo persistence, and add-repo validation now run through preload and main.'
     }
   ]
+}
+
+type RepoSetupNotice = {
+  tone: 'error' | 'success'
+  message: string
 }
 
 export function DashboardLayout(): React.JSX.Element {
   const { user } = useUser()
   const viewer = useQuery(api.auth.viewer, {})
-  const [repos, setRepos] = useState<DashboardRepo[]>(initialRepos)
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(initialRepos[1]?.id ?? null)
+  const [config, setConfig] = useState<DeskbinderConfig | null>(null)
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true)
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [isPickingFolder, setIsPickingFolder] = useState(false)
   const [draftPrompt, setDraftPrompt] = useState('')
   const [repoForSettings, setRepoForSettings] = useState<DashboardRepo | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [jobHint, setJobHint] = useState<string | null>(null)
+  const [repoSetupNotice, setRepoSetupNotice] = useState<RepoSetupNotice | null>(null)
+  const repos = useMemo(() => buildDashboardRepos(config), [config])
+
+  useEffect(() => {
+    let isMounted = true
+
+    void window.api
+      .getLocalConfig()
+      .then((nextConfig) => {
+        if (!isMounted) {
+          return
+        }
+
+        setConfig(nextConfig)
+        setSelectedRepoId((currentSelectedRepoId) => currentSelectedRepoId ?? nextConfig.repos[0]?.id ?? null)
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingConfig(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!repos.length) {
+      if (selectedRepoId !== null) {
+        setSelectedRepoId(null)
+      }
+      return
+    }
+
+    if (!selectedRepoId || !repos.some((repo) => repo.id === selectedRepoId)) {
+      setSelectedRepoId(repos[0]?.id ?? null)
+    }
+  }, [repos, selectedRepoId])
 
   const activeRepo = useMemo(
     () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
@@ -101,8 +121,30 @@ export function DashboardLayout(): React.JSX.Element {
     try {
       const result = await window.api.pickFolder()
 
-      if (!result.canceled) {
+      if (!result.canceled && result.path) {
         setSelectedFolder(result.path)
+        setRepoSetupNotice(null)
+
+        try {
+          const nextConfig = await window.api.createRepo({
+            name: getPathBasename(result.path),
+            repoPath: result.path
+          })
+
+          const addedRepo = nextConfig.repos[nextConfig.repos.length - 1] ?? null
+          setConfig(nextConfig)
+          setSelectedRepoId(addedRepo?.id ?? nextConfig.repos[0]?.id ?? null)
+          setRepoSetupNotice({
+            tone: 'success',
+            message: `Added ${addedRepo?.name ?? getPathBasename(result.path)} to local deskbinder config.`
+          })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to add that repository.'
+          setRepoSetupNotice({
+            tone: 'error',
+            message
+          })
+        }
       }
     } finally {
       setIsPickingFolder(false)
@@ -114,14 +156,27 @@ export function DashboardLayout(): React.JSX.Element {
     setIsSettingsOpen(true)
   }
 
-  function handleSaveRepo(nextRepo: DashboardRepo): void {
-    setRepos((currentRepos) =>
-      currentRepos.map((repo) => (repo.id === nextRepo.id ? nextRepo : repo))
-    )
+  async function handleSaveRepo(nextRepo: DashboardRepo): Promise<void> {
+    const { status: _status, ...repoSettings } = nextRepo
+    const nextConfig = await window.api.updateRepo(repoSettings)
+    setConfig(nextConfig)
+  }
+
+  async function handleToggleAutoRun(nextValue: boolean): Promise<void> {
+    const nextConfig = await window.api.updateAppSettings(nextValue)
+    setConfig(nextConfig)
   }
 
   function handleNewJob(): void {
     setJobHint('New Job is a placeholder in this UI pass. No draft or process starts yet.')
+  }
+
+  if (isLoadingConfig) {
+    return (
+      <section className="mx-auto flex h-full min-h-0 w-full min-w-[1024px] max-w-[1400px] items-center justify-center">
+        <div className="text-sm text-slate-300/80">Loading local deskbinder config...</div>
+      </section>
+    )
   }
 
   return (
@@ -131,11 +186,13 @@ export function DashboardLayout(): React.JSX.Element {
           <RepoSidebar
             accountEmail={user?.primaryEmailAddress?.emailAddress ?? 'unknown email'}
             accountName={user?.fullName ?? user?.username ?? 'Account'}
+            autoRunEnabled={config?.appSettings.autoRunEnabled ?? false}
             isPickingFolder={isPickingFolder}
             lastPickedFolder={selectedFolder}
             onOpenSettings={handleOpenSettings}
             onSelectRepo={setSelectedRepoId}
             onSetupRepo={() => void handlePickFolder()}
+            onToggleAutoRun={(nextValue) => void handleToggleAutoRun(nextValue)}
             repos={repos}
             selectedRepoId={selectedRepoId}
           />
@@ -154,6 +211,18 @@ export function DashboardLayout(): React.JSX.Element {
               </div>
             ) : null}
 
+            {repoSetupNotice ? (
+              <div
+                className={
+                  repoSetupNotice.tone === 'error'
+                    ? 'border-b border-rose-300/12 bg-rose-300/7 px-6 py-3 text-sm text-rose-50'
+                    : 'border-b border-emerald-300/12 bg-emerald-300/7 px-6 py-3 text-sm text-emerald-50'
+                }
+              >
+                {repoSetupNotice.message}
+              </div>
+            ) : null}
+
             {activeRepo ? <TranscriptPanel items={transcript} /> : <EmptyWorkspaceState />}
 
             <PromptComposer
@@ -167,7 +236,7 @@ export function DashboardLayout(): React.JSX.Element {
 
       <RepoSettingsDialog
         onOpenChange={setIsSettingsOpen}
-        onSave={handleSaveRepo}
+        onSave={(repo) => void handleSaveRepo(repo)}
         open={isSettingsOpen}
         repo={repoForSettings}
       />

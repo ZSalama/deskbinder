@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } fr
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS, type AppVersions, type FolderPickResult } from '../shared/ipc'
+import { LocalConfigStore } from './services/localConfig'
 import { createRendererServer, type RendererServer } from './services/rendererServer'
 import icon from '../../resources/icon.png?asset'
 
@@ -58,6 +59,7 @@ async function pickFolder(window: BrowserWindow | null): Promise<FolderPickResul
 }
 
 let rendererServer: RendererServer | null = null
+let localConfigStore: LocalConfigStore | null = null
 
 async function getProductionRendererUrl(): Promise<URL> {
   if (!rendererServer) {
@@ -137,6 +139,7 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
+  localConfigStore = new LocalConfigStore(app)
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -146,6 +149,38 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.getVersions, () => getAppVersions())
   ipcMain.handle(IPC_CHANNELS.pickFolder, (event) => {
     return pickFolder(BrowserWindow.fromWebContents(event.sender))
+  })
+  ipcMain.handle(IPC_CHANNELS.getLocalConfig, async () => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    return localConfigStore.read()
+  })
+  ipcMain.handle(IPC_CHANNELS.createRepo, async (_, input) => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    return localConfigStore.createRepo(input)
+  })
+  ipcMain.handle(IPC_CHANNELS.updateRepo, async (_, repo) => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    return localConfigStore.upsertRepo(repo)
+  })
+  ipcMain.handle(IPC_CHANNELS.updateAppSettings, async (_, autoRunEnabled) => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    if (typeof autoRunEnabled !== 'boolean') {
+      throw new Error('Invalid app settings.')
+    }
+
+    return localConfigStore.updateAppSettings(autoRunEnabled)
   })
 
   void createWindow()

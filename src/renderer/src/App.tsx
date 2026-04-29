@@ -59,7 +59,7 @@ function ConfigurationError(): React.JSX.Element {
 
 function HomeRedirect(): React.JSX.Element {
   const { isLoaded, isSignedIn } = useAuth()
-  const { isLoading, isAuthenticated } = useConvexAuth()
+  const { isLoading } = useConvexAuth()
 
   if (!isLoaded || isLoading) {
     return <CenteredStatus message="Loading authentication..." />

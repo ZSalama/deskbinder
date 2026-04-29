@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import type { DashboardRepo } from './types'
 
 type RepoListItemProps = {
-  depth?: number
   isSelected: boolean
   onOpenSettings: (repo: DashboardRepo) => void
   onSelect: (repoId: string) => void
@@ -12,7 +11,6 @@ type RepoListItemProps = {
 }
 
 export function RepoListItem({
-  depth = 0,
   isSelected,
   onOpenSettings,
   onSelect,
@@ -31,10 +29,9 @@ export function RepoListItem({
         type="button"
         className={cn(
           'min-w-0 flex-1 truncate px-3 py-2 text-left text-[13px] font-medium',
-          repo.kind === 'main' ? 'text-white' : 'text-slate-300',
+          'text-white',
           isSelected ? 'text-cyan-50' : null
         )}
-        style={{ paddingLeft: `${12 + depth * 18}px` }}
         onClick={() => onSelect(repo.id)}
       >
         <span className="truncate">{repo.name}</span>

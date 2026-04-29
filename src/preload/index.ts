@@ -4,7 +4,12 @@ import { IPC_CHANNELS, type DeskbinderApi } from '../shared/ipc'
 const api: DeskbinderApi = {
   ping: () => ipcRenderer.invoke(IPC_CHANNELS.ping),
   getVersions: () => ipcRenderer.invoke(IPC_CHANNELS.getVersions),
-  pickFolder: () => ipcRenderer.invoke(IPC_CHANNELS.pickFolder)
+  pickFolder: () => ipcRenderer.invoke(IPC_CHANNELS.pickFolder),
+  getLocalConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getLocalConfig),
+  createRepo: (input) => ipcRenderer.invoke(IPC_CHANNELS.createRepo, input),
+  updateRepo: (repo) => ipcRenderer.invoke(IPC_CHANNELS.updateRepo, repo),
+  updateAppSettings: (autoRunEnabled) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateAppSettings, autoRunEnabled)
 }
 
 if (process.contextIsolated) {
