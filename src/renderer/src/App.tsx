@@ -1,12 +1,14 @@
 import { SignIn, SignUp, useAuth } from '@clerk/react'
+import { useConvexAuth } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import wavyLines from './assets/wavy-lines.svg'
 import { DashboardLayout } from './components/dashboard/DashboardLayout'
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+const convexUrl = import.meta.env.VITE_CONVEX_URL
 
 function App(): React.JSX.Element {
-  if (!publishableKey) {
+  if (!publishableKey || !convexUrl) {
     return <ConfigurationError />
   }
 
@@ -43,11 +45,12 @@ function ConfigurationError(): React.JSX.Element {
     <main className="flex h-dvh items-center justify-center overflow-hidden bg-[#061018] px-6 text-slate-100">
       <section className="w-full max-w-xl rounded-[28px] border border-amber-300/20 bg-amber-100/10 p-8 shadow-2xl backdrop-blur">
         <p className="text-xs font-semibold uppercase tracking-[0.32em] text-amber-200/80">
-          Clerk setup required
+          Auth setup required
         </p>
-        <h1 className="mt-4 text-3xl font-semibold text-white">Add your publishable key</h1>
+        <h1 className="mt-4 text-3xl font-semibold text-white">Add your auth environment</h1>
         <p className="mt-4 text-sm leading-6 text-slate-200/80">
-          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> in your environment before starting the app.
+          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> and <code>VITE_CONVEX_URL</code> in
+          your environment before starting the app.
         </p>
       </section>
     </main>
@@ -56,23 +59,33 @@ function ConfigurationError(): React.JSX.Element {
 
 function HomeRedirect(): React.JSX.Element {
   const { isLoaded, isSignedIn } = useAuth()
+  const { isLoading, isAuthenticated } = useConvexAuth()
 
-  if (!isLoaded) {
+  if (!isLoaded || isLoading) {
     return <CenteredStatus message="Loading authentication..." />
   }
 
-  return <Navigate replace to={isSignedIn ? '/dashboard' : '/sign-in'} />
+  if (isSignedIn) {
+    return <Navigate replace to="/dashboard" />
+  }
+
+  return <Navigate replace to="/sign-in" />
 }
 
 function ProtectedRoute({ children }: { children: React.JSX.Element }): React.JSX.Element {
   const { isLoaded, isSignedIn } = useAuth()
+  const { isLoading, isAuthenticated } = useConvexAuth()
 
-  if (!isLoaded) {
+  if (!isLoaded || isLoading) {
     return <CenteredStatus message="Loading your workspace..." />
   }
 
   if (!isSignedIn) {
     return <Navigate replace to="/sign-in" />
+  }
+
+  if (!isAuthenticated) {
+    return <CenteredStatus message="Connecting your workspace..." />
   }
 
   return children

@@ -30,7 +30,11 @@ const CONTENT_SECURITY_POLICY = [
     'https://clerk-telemetry.com',
     'https://*.clerk-telemetry.com',
     'https://*.clerk.accounts.dev',
-    'https://*.clerk.com'
+    'https://*.clerk.com',
+    'https://*.convex.cloud',
+    'wss://*.convex.cloud',
+    'https://*.convex.site',
+    'wss://*.convex.site'
   ].join(' '),
   "img-src 'self' data: https://img.clerk.com https://*.clerk.com",
   "worker-src 'self' blob:",

@@ -1,5 +1,7 @@
 import { useUser } from '@clerk/react'
+import { useQuery } from 'convex/react'
 import { useMemo, useState } from 'react'
+import { api } from '../../../../../convex/_generated/api'
 import { RepoSettingsDialog } from './RepoSettingsDialog'
 import { RepoSidebar } from './RepoSidebar'
 import { EmptyWorkspaceState } from './EmptyWorkspaceState'
@@ -76,6 +78,7 @@ function buildTranscript(repo: DashboardRepo): TranscriptItem[] {
 
 export function DashboardLayout(): React.JSX.Element {
   const { user } = useUser()
+  const viewer = useQuery(api.auth.viewer, {})
   const [repos, setRepos] = useState<DashboardRepo[]>(initialRepos)
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(initialRepos[1]?.id ?? null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
@@ -138,7 +141,12 @@ export function DashboardLayout(): React.JSX.Element {
           />
 
           <section className="flex min-h-[720px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/72 shadow-[0_28px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
-            <WorkspaceHeader activeRepo={activeRepo} onNewJob={handleNewJob} />
+            <WorkspaceHeader
+              activeRepo={activeRepo}
+              authEmail={viewer?.email ?? user?.primaryEmailAddress?.emailAddress ?? null}
+              authReady={viewer !== undefined}
+              onNewJob={handleNewJob}
+            />
 
             {jobHint ? (
               <div className="border-b border-cyan-300/12 bg-cyan-300/7 px-6 py-3 text-sm text-cyan-50">

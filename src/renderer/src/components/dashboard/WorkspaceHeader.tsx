@@ -5,10 +5,17 @@ import type { DashboardRepo } from './types'
 
 type WorkspaceHeaderProps = {
   activeRepo: DashboardRepo | null
+  authEmail: string | null
+  authReady: boolean
   onNewJob: () => void
 }
 
-export function WorkspaceHeader({ activeRepo, onNewJob }: WorkspaceHeaderProps): React.JSX.Element {
+export function WorkspaceHeader({
+  activeRepo,
+  authEmail,
+  authReady,
+  onNewJob
+}: WorkspaceHeaderProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-5">
       <div className="flex items-start justify-between gap-6">
@@ -23,6 +30,12 @@ export function WorkspaceHeader({ activeRepo, onNewJob }: WorkspaceHeaderProps):
                 Active Repo
               </Badge>
             ) : null}
+            <Badge
+              variant="outline"
+              className={authReady ? 'border-cyan-300/20 text-cyan-100' : 'border-white/10 text-slate-300'}
+            >
+              {authReady ? 'Convex Auth Ready' : 'Connecting Convex Auth'}
+            </Badge>
           </div>
 
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">
@@ -57,6 +70,11 @@ export function WorkspaceHeader({ activeRepo, onNewJob }: WorkspaceHeaderProps):
             <ShieldCheck className="size-3.5 text-emerald-200" />
             Renderer remains unprivileged
           </div>
+          {authEmail ? (
+            <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
+              {authEmail}
+            </code>
+          ) : null}
           <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
             {activeRepo.path}
           </code>
