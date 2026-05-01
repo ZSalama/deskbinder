@@ -1,10 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.web.json" }],
-  "compilerOptions": {
-	"baseUrl": ".",
-	"paths": {
-		"@/*": ["./*"]
-	},
-  }
+  "references": [
+    { "path": "./apps/desktop/tsconfig.node.json" },
+    { "path": "./apps/desktop/tsconfig.web.json" },
+    { "path": "./packages/shared/tsconfig.json" },
+    { "path": "./packages/convex-client/tsconfig.json" }
+  ]
 }

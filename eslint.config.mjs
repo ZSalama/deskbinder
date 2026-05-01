@@ -6,7 +6,7 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  { ignores: ['**/node_modules', '**/.next', '**/dist', '**/out'] },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
@@ -20,12 +20,28 @@ export default defineConfig(
   {
     files: ['**/*.{ts,tsx}'],
     plugins: {
-      'react-hooks': eslintPluginReactHooks,
+      'react-hooks': eslintPluginReactHooks
+    },
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      ...eslintPluginReactHooks.configs.recommended.rules
+    }
+  },
+  {
+    files: ['apps/desktop/src/renderer/src/**/*.{ts,tsx}'],
+    plugins: {
       'react-refresh': eslintPluginReactRefresh
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
+      ...eslintPluginReactRefresh.configs.vite.rules,
+      'react-refresh/only-export-components': 'off'
+    }
+  },
+  {
+    files: ['**/*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off'
     }
   },
   eslintConfigPrettier

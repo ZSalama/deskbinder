@@ -1,0 +1,24 @@
+{
+  "name": "@deskbinder/web",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.4.0",
+    "@deskbinder/convex-client": "workspace:*",
+    "convex": "^1.36.1",
+    "next": "^16.0.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.4",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.2.4"
+  }
+}

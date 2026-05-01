@@ -1,0 +1,28 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "electron.vite.config.*",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "scripts/**/*.mjs"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@deskbinder/convex-client": [
+        "../../packages/convex-client/src/index.ts"
+      ],
+      "@deskbinder/convex-client/*": [
+        "../../packages/convex-client/src/*"
+      ],
+      "@deskbinder/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@deskbinder/shared/*": [
+        "../../packages/shared/src/*"
+      ]
+    },
+    "types": ["electron-vite/node", "node"]
+  }
+}

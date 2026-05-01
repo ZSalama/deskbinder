@@ -12,6 +12,7 @@ pnpm-debug.log*
 out/
 dist/
 release/
+.next/
 *.asar
 *.asar.unpacked
 
@@ -36,3 +37,4 @@ Thumbs.db
 *.sln
 
 notes.txt
+apps/desktop/.deskbinder/
