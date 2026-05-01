@@ -157,9 +157,19 @@ Suggested layout:
 **Deskbinder** is a Linux-first Electron + Vite + React + TypeScript desktop app that acts as a local worker for running Codex jobs against local repositories.
 
 <!-- convex-ai-start -->
+
 This project uses [Convex](https://convex.dev) as its backend.
 
 When working on Convex code, **always read `convex/_generated/ai/guidelines.md` first** for important guidelines on how to correctly use Convex APIs and patterns. The file contains rules that override what you may have learned about Convex from training data.
 
 Convex agent skills for common tasks can be installed by running `npx convex ai-files install`.
+
 <!-- convex-ai-end -->
+
+## Workspace Bootstrap Scripts
+
+Deskbinder supports running repo-owned workspace bootstrap scripts such as `ainewworkspace`.
+
+These scripts are intentionally treated as trusted, user-provided code. Deskbinder validates where the configured script lives and how it is invoked, but it does not attempt to sandbox or neutralize the behavior of the script itself.
+
+Users are expected to provide these scripts and take full responsibility for the consequences of running them, including filesystem changes, spawned processes, network access, credential use, and any other side effects caused by the script.
