@@ -1,34 +1,23 @@
-# deskbinder
+# DeskBinder
 
-An Electron application with React and TypeScript
+Small electron app for managing local development workflow. Create work trees for projects with bring your own script style dev building.
 
-## Recommended IDE Setup
+# WebBinder
 
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+(in progress) Small web app to interface with deskbinder remotely.
 
-## Project Setup
+# Stack DeskBinder
 
-### Install
+-Electron
+-Vite
+-React
+-Clerk
+-Convex
+-Clerk
 
-```bash
-$ pnpm install
-```
+# Stack WebBinder
 
-### Development
-
-```bash
-$ pnpm dev
-```
-
-### Build
-
-```bash
-# For windows
-$ pnpm build:win
-
-# For macOS
-$ pnpm build:mac
-
-# For Linux
-$ pnpm build:linux
-```
+-Next.js
+-React
+-Convex
+-Vercel
