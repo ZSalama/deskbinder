@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } fr
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import type { AppVersions, FolderPickResult } from '@deskbinder/shared/ipc'
+import type { RunWorkspaceScriptResponse } from '@deskbinder/shared/deskbinder'
 import { LocalConfigStore } from './services/localConfig'
 import { createRendererServer, type RendererServer } from './services/rendererServer'
 import { deleteWorkspace } from './services/deleteWorkspace'
@@ -14,6 +15,7 @@ import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['https:', 'mailto:'])
+const WORKSPACE_SCRIPT_CONCURRENCY_FAILURE_STEP = 'concurrency_guard'
 
 function getRendererUrl(): URL | null {
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
@@ -67,8 +69,18 @@ async function pickFolder(window: BrowserWindow | null): Promise<FolderPickResul
 
 let rendererServer: RendererServer | null = null
 let localConfigStore: LocalConfigStore | null = null
+let activeWorkspaceScriptRun: Promise<RunWorkspaceScriptResponse> | null = null
 let hasCompletedQuitCleanup = false
 let quitCleanupPromise: Promise<void> | null = null
+
+function getStringInput(input: unknown, key: string): string {
+  if (!input || typeof input !== 'object') {
+    return ''
+  }
+
+  const value = (input as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
 
 async function getProductionRendererUrl(): Promise<URL> {
   if (!rendererServer) {
@@ -101,6 +113,83 @@ async function cleanupBeforeQuit(): Promise<void> {
   if (rendererServer) {
     await rendererServer.close()
     rendererServer = null
+  }
+}
+
+async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScriptResponse> {
+  if (!localConfigStore) {
+    throw new Error('Local config store is unavailable.')
+  }
+
+  const configStore = localConfigStore
+  const repoId = getStringInput(input, 'repoId')
+  const branchName = getStringInput(input, 'branchName')
+  const currentConfig = await configStore.read()
+  const sourceRepo = currentConfig.repos.find((repo) => repo.id === repoId)
+
+  if (!sourceRepo) {
+    return {
+      config: currentConfig,
+      selectedRepoId: null,
+      result: {
+        ok: false,
+        agentRunnable: false,
+        branchName,
+        failureStep: 'repo_lookup',
+        errorMessage: 'Selected repo is no longer configured.'
+      }
+    }
+  }
+
+  const result = await runWorkspaceScript({
+    branchName,
+    repo: sourceRepo
+  })
+
+  if (result.ok && result.agentRunnable && result.workspacePath) {
+    try {
+      const registration = await configStore.registerWorkspaceRepo(
+        sourceRepo,
+        result.workspacePath,
+        result.workspaceName,
+        {
+          branchName: result.branchName,
+          processes: await collectTrackedWorkspaceProcesses(
+            result.workspacePath,
+            [result.processes?.dev, result.processes?.convex].filter(
+              (pid): pid is number => typeof pid === 'number' && Number.isInteger(pid) && pid > 1
+            )
+          )
+        }
+      )
+
+      return {
+        config: registration.config,
+        selectedRepoId: registration.repoId,
+        result
+      }
+    } catch (error) {
+      return {
+        config: await configStore.read(),
+        selectedRepoId: sourceRepo.id,
+        result: {
+          ...result,
+          ok: false,
+          agentRunnable: false,
+          failureStep: 'workspace_validation',
+          errorMessage:
+            error instanceof Error
+              ? error.message
+              : 'Returned workspace path could not be validated.'
+        }
+      }
+    }
+  }
+
+  return {
+    config: currentConfig,
+    selectedRepoId: sourceRepo.id,
+    result
   }
 }
 
@@ -222,12 +311,10 @@ app.whenReady().then(() => {
       throw new Error('Local config store is unavailable.')
     }
 
-    const repoId = typeof input?.repoId === 'string' ? input.repoId.trim() : ''
-    const branchName = typeof input?.branchName === 'string' ? input.branchName.trim() : ''
-    const currentConfig = await localConfigStore.read()
-    const sourceRepo = currentConfig.repos.find((repo) => repo.id === repoId)
+    if (activeWorkspaceScriptRun) {
+      const currentConfig = await localConfigStore.read()
+      const branchName = getStringInput(input, 'branchName')
 
-    if (!sourceRepo) {
       return {
         config: currentConfig,
         selectedRepoId: null,
@@ -235,61 +322,21 @@ app.whenReady().then(() => {
           ok: false,
           agentRunnable: false,
           branchName,
-          failureStep: 'repo_lookup',
-          errorMessage: 'Selected repo is no longer configured.'
+          failureStep: WORKSPACE_SCRIPT_CONCURRENCY_FAILURE_STEP,
+          errorMessage: 'A workspace script is already running.'
         }
       }
     }
 
-    const result = await runWorkspaceScript({
-      branchName,
-      repo: sourceRepo
-    })
+    const workspaceScriptRun = handleRunWorkspaceScript(input)
+    activeWorkspaceScriptRun = workspaceScriptRun
 
-    if (result.ok && result.agentRunnable && result.workspacePath) {
-      try {
-        const registration = await localConfigStore.registerWorkspaceRepo(
-          sourceRepo,
-          result.workspacePath,
-          result.workspaceName,
-          {
-            branchName: result.branchName,
-            processes: await collectTrackedWorkspaceProcesses(
-              result.workspacePath,
-              [result.processes?.dev, result.processes?.convex].filter(
-                (pid): pid is number => typeof pid === 'number' && Number.isInteger(pid) && pid > 1
-              )
-            )
-          }
-        )
-
-        return {
-          config: registration.config,
-          selectedRepoId: registration.repoId,
-          result
-        }
-      } catch (error) {
-        return {
-          config: await localConfigStore.read(),
-          selectedRepoId: sourceRepo.id,
-          result: {
-            ...result,
-            ok: false,
-            agentRunnable: false,
-            failureStep: 'workspace_validation',
-            errorMessage:
-              error instanceof Error
-                ? error.message
-                : 'Returned workspace path could not be validated.'
-          }
-        }
+    try {
+      return await workspaceScriptRun
+    } finally {
+      if (activeWorkspaceScriptRun === workspaceScriptRun) {
+        activeWorkspaceScriptRun = null
       }
-    }
-
-    return {
-      config: currentConfig,
-      selectedRepoId: sourceRepo.id,
-      result
     }
   })
   ipcMain.handle(IPC_CHANNELS.deleteWorkspace, async (_, input) => {

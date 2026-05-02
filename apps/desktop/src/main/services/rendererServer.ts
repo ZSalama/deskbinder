@@ -20,7 +20,7 @@ const CONTENT_TYPES: Record<string, string> = {
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' http: https:",
+  "script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com",
   [
     "connect-src 'self'",
     'http://localhost:*',
