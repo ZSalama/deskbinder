@@ -30,8 +30,10 @@ export type RepoReadinessStatus =
 
 export type RepoSyncMetadata = {
   localRepoId: string
+  sourceLocalRepoId?: string
   name: string
   currentBranch: string
+  workspaceBranchName?: string
   isValid: boolean
   readinessStatus: RepoReadinessStatus
   readinessMessage?: string

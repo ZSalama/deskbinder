@@ -23,8 +23,10 @@ type DesktopRepoSummary = {
   desktopRepoId: Id<'desktopRepos'>
   workerId: string
   localRepoId: string
+  sourceLocalRepoId?: string
   name: string
   currentBranch: string
+  workspaceBranchName?: string
   isValid: boolean
   readinessStatus: RepoReadinessStatus
   readinessMessage: string | null
@@ -63,8 +65,10 @@ function toDesktopRepoSummary(repo: Doc<'desktopRepos'>): DesktopRepoSummary {
     desktopRepoId: repo._id,
     workerId: repo.workerId,
     localRepoId: repo.localRepoId,
+    sourceLocalRepoId: repo.sourceLocalRepoId,
     name: repo.name,
     currentBranch: repo.currentBranch,
+    workspaceBranchName: repo.workspaceBranchName,
     isValid: repo.isValid,
     readinessStatus: repo.readinessStatus,
     readinessMessage: repo.readinessMessage ?? null,
@@ -78,8 +82,10 @@ export const syncDesktopRepos = mutation({
     repos: v.array(
       v.object({
         localRepoId: v.string(),
+        sourceLocalRepoId: v.optional(v.string()),
         name: v.string(),
         currentBranch: v.string(),
+        workspaceBranchName: v.optional(v.string()),
         isValid: v.boolean(),
         readinessStatus: repoReadinessStatusValidator,
         readinessMessage: v.optional(v.string()),
@@ -113,8 +119,12 @@ export const syncDesktopRepos = mutation({
         lastSeenAt: repo.lastSeenAt,
         updatedAt: now
       }
-      const repoPatch =
-        readinessMessage !== undefined ? { ...repoFields, readinessMessage } : repoFields
+      const repoPatch = {
+        ...repoFields,
+        ...(repo.sourceLocalRepoId ? { sourceLocalRepoId: repo.sourceLocalRepoId } : {}),
+        ...(repo.workspaceBranchName ? { workspaceBranchName: repo.workspaceBranchName } : {}),
+        ...(readinessMessage !== undefined ? { readinessMessage } : {})
+      }
 
       if (existingRepo) {
         await ctx.db.patch(existingRepo._id, repoPatch)

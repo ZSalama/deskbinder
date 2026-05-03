@@ -1,7 +1,7 @@
 import { spawn, execFile, type ChildProcessByStdio } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { open, realpath, writeFile, type FileHandle } from 'node:fs/promises'
+import { mkdir, open, realpath, writeFile, type FileHandle } from 'node:fs/promises'
 import { join, normalize } from 'node:path'
 import type { Readable } from 'node:stream'
 import { promisify } from 'node:util'
@@ -25,9 +25,11 @@ const MAX_STREAM_LOG_BYTES = 10 * 1024 * 1024
 const LAST_MESSAGE_MAX_BYTES = 256 * 1024
 const AGENT_TIMEOUT_MS = 2 * 60 * 60 * 1000
 const PROCESS_SHUTDOWN_WAIT_MS = 1_500
+const AGENT_RUN_LOG_DIRECTORY = 'agent-runs'
 const STDOUT_LOG_FILENAME = 'codex.stdout.log'
 const STDERR_LOG_FILENAME = 'codex.stderr.log'
 const LAST_MESSAGE_FILENAME = 'codex-last-message.md'
+const RUN_METADATA_FILENAME = 'metadata.json'
 const TRUNCATION_MARKER = '\n[deskbinder: output truncated]\n'
 
 type StreamState = {
@@ -61,9 +63,18 @@ type FinishDetails = {
 }
 
 type ValidatedRunInput = {
+  branchName: string
   promptText: string
   repo: RepoSettings
   workspacePath: string
+}
+
+type AgentRunLogPaths = {
+  directoryPath: string
+  lastMessagePath: string
+  metadataPath: string
+  stderrPath: string
+  stdoutPath: string
 }
 
 function sanitizeString(value: unknown): string | null {
@@ -156,6 +167,61 @@ async function validateRepoRoot(repoPath: string): Promise<string> {
   return resolvedRepoPath
 }
 
+async function getCurrentBranchName(repoPath: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', ['branch', '--show-current'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024
+    })
+    const branchName = sanitizeString(stdout)
+
+    return branchName ?? 'detached-head'
+  } catch {
+    return 'unknown-branch'
+  }
+}
+
+function sanitizePathSegment(value: string): string {
+  const segment = value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96)
+
+  return segment || 'unknown'
+}
+
+function formatRunTimestamp(timestamp: number): string {
+  return new Date(timestamp).toISOString().replace(/[:.]/g, '-')
+}
+
+function buildAgentRunLogPaths(
+  logRootPath: string,
+  input: ValidatedRunInput,
+  runId: string,
+  startedAt: number
+): AgentRunLogPaths {
+  const repoSegment = sanitizePathSegment(`${input.repo.name}-${input.repo.id}`)
+  const branchSegment = sanitizePathSegment(input.branchName)
+  const runSegment = sanitizePathSegment(`${formatRunTimestamp(startedAt)}-${runId}`)
+  const directoryPath = join(
+    logRootPath,
+    AGENT_RUN_LOG_DIRECTORY,
+    repoSegment,
+    branchSegment,
+    runSegment
+  )
+
+  return {
+    directoryPath,
+    stdoutPath: join(directoryPath, STDOUT_LOG_FILENAME),
+    stderrPath: join(directoryPath, STDERR_LOG_FILENAME),
+    lastMessagePath: join(directoryPath, LAST_MESSAGE_FILENAME),
+    metadataPath: join(directoryPath, RUN_METADATA_FILENAME)
+  }
+}
+
 function getRepo(config: DeskbinderConfig, repoId: string): RepoSettings | null {
   return config.repos.find((repo) => repo.id === repoId && !repo.deleted) ?? null
 }
@@ -163,7 +229,10 @@ function getRepo(config: DeskbinderConfig, repoId: string): RepoSettings | null 
 export class AgentRunner {
   private activeRun: ActiveAgentRun | null = null
 
-  constructor(private readonly localConfigStore: LocalConfigStore) {}
+  constructor(
+    private readonly localConfigStore: LocalConfigStore,
+    private readonly logRootPath: string
+  ) {}
 
   async run(input: unknown, webContents: WebContents): Promise<RunAgentResponse> {
     if (this.activeRun) {
@@ -185,34 +254,53 @@ export class AgentRunner {
     }
 
     const runId = randomUUID()
-    const stdoutPath = join(validatedInput.workspacePath, STDOUT_LOG_FILENAME)
-    const stderrPath = join(validatedInput.workspacePath, STDERR_LOG_FILENAME)
-    const lastMessagePath = join(validatedInput.workspacePath, LAST_MESSAGE_FILENAME)
+    const startedAt = Date.now()
+    const logPaths = buildAgentRunLogPaths(this.logRootPath, validatedInput, runId, startedAt)
     let stdout: StreamState
     let stderr: StreamState
     let child: AgentChildProcess
 
     try {
+      await mkdir(logPaths.directoryPath, { recursive: true })
       await Promise.all([
-        writeFile(stdoutPath, '', 'utf8'),
-        writeFile(stderrPath, '', 'utf8'),
-        writeFile(lastMessagePath, '', 'utf8')
+        writeFile(logPaths.stdoutPath, '', 'utf8'),
+        writeFile(logPaths.stderrPath, '', 'utf8'),
+        writeFile(logPaths.lastMessagePath, '', 'utf8'),
+        writeFile(
+          logPaths.metadataPath,
+          JSON.stringify(
+            {
+              runId,
+              repoId: validatedInput.repo.id,
+              repoName: validatedInput.repo.name,
+              repoPath: validatedInput.repo.repoPath,
+              sourceRepoId: validatedInput.repo.sourceRepoId,
+              sourceRepoPath: validatedInput.repo.sourceRepoPath,
+              workspacePath: validatedInput.workspacePath,
+              branchName: validatedInput.branchName,
+              startedAt
+            },
+            null,
+            2
+          ) + '\n',
+          'utf8'
+        )
       ])
       stdout = {
         bytes: 0,
         truncated: false,
-        stream: createWriteStream(stdoutPath, { flags: 'a', encoding: 'utf8' })
+        stream: createWriteStream(logPaths.stdoutPath, { flags: 'a', encoding: 'utf8' })
       }
       stderr = {
         bytes: 0,
         truncated: false,
-        stream: createWriteStream(stderrPath, { flags: 'a', encoding: 'utf8' })
+        stream: createWriteStream(logPaths.stderrPath, { flags: 'a', encoding: 'utf8' })
       }
       stdout.stream.on('error', () => {})
       stderr.stream.on('error', () => {})
       child = spawn(
         validatedInput.repo.agentExecutable ?? 'codex',
-        ['exec', validatedInput.promptText, '-o', lastMessagePath],
+        ['exec', validatedInput.promptText, '-o', logPaths.lastMessagePath],
         {
           cwd: validatedInput.workspacePath,
           shell: false,
@@ -264,7 +352,7 @@ export class AgentRunner {
           resolveCompleted()
         })
       },
-      lastMessagePath,
+      lastMessagePath: logPaths.lastMessagePath,
       repoId: validatedInput.repo.id,
       runId,
       stderr,
@@ -305,7 +393,7 @@ export class AgentRunner {
       type: 'started',
       runId,
       repoId: validatedInput.repo.id,
-      startedAt: Date.now()
+      startedAt
     })
 
     return {
@@ -405,10 +493,13 @@ export class AgentRunner {
       throw new Error('Only the Codex agent is supported for this runner.')
     }
 
+    const workspacePath = await validateRepoRoot(repo.repoPath)
+
     return {
+      branchName: repo.workspaceBranchName ?? (await getCurrentBranchName(workspacePath)),
       promptText,
       repo,
-      workspacePath: await validateRepoRoot(repo.repoPath)
+      workspacePath
     }
   }
 
@@ -451,7 +542,10 @@ export class AgentRunner {
   }
 
   private async finishRun(activeRun: ActiveAgentRun, details: FinishDetails): Promise<void> {
-    await Promise.all([writeStreamEnd(activeRun.stdout.stream), writeStreamEnd(activeRun.stderr.stream)])
+    await Promise.all([
+      writeStreamEnd(activeRun.stdout.stream),
+      writeStreamEnd(activeRun.stderr.stream)
+    ])
 
     const status = getCompletionStatus(details, activeRun.requestedStatus)
     const lastMessage = await readLastMessage(activeRun.lastMessagePath)

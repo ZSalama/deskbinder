@@ -271,7 +271,7 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
   localConfigStore = new LocalConfigStore(app)
-  agentRunner = new AgentRunner(localConfigStore)
+  agentRunner = new AgentRunner(localConfigStore, app.getPath('userData'))
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

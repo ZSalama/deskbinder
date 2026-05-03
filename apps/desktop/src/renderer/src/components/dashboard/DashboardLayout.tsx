@@ -7,7 +7,7 @@ import type {
 } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useConvexAuth } from 'convex/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RepoSettingsDialog } from './RepoSettingsDialog'
 import { RepoSidebar } from './RepoSidebar'
 import { EmptyWorkspaceState } from './EmptyWorkspaceState'
@@ -18,6 +18,7 @@ import { WorkspaceHeader } from './WorkspaceHeader'
 import type { DashboardRepo, TranscriptItem } from './types'
 import { useRepoMetadataSync } from '../../hooks/useRepoMetadataSync'
 import { useWorkerHeartbeat } from '../../hooks/useWorkerHeartbeat'
+import { useBranchRequestRunner } from '../../hooks/useBranchRequestRunner'
 
 function getPathBasename(path: string): string {
   const normalizedPath = path.replace(/\/+$/, '')
@@ -131,6 +132,18 @@ export function DashboardLayout(): React.JSX.Element {
     desktopApi,
     enabled: isAuthenticated
   })
+  const handleRemoteBranchNotice = useCallback((notice: RepoSetupNotice) => {
+    setRepoSetupNotice(notice)
+  }, [])
+  const { activeBranchName: remoteBranchName, error: branchRequestRunnerError } =
+    useBranchRequestRunner({
+      config,
+      desktopApi,
+      enabled: isAuthenticated,
+      onConfigUpdated: setConfig,
+      onNotice: handleRemoteBranchNotice,
+      onSelectedRepoId: setSelectedRepoId
+    })
 
   useEffect(() => {
     if (!desktopApi) {
@@ -668,6 +681,18 @@ export function DashboardLayout(): React.JSX.Element {
             {repoMetadataSyncError ? (
               <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
                 {repoMetadataSyncError}
+              </div>
+            ) : null}
+
+            {remoteBranchName ? (
+              <div className="border-b border-blue-300/12 bg-blue-300/7 px-6 py-3 text-sm text-blue-50">
+                Running remote branch request for {remoteBranchName}.
+              </div>
+            ) : null}
+
+            {branchRequestRunnerError ? (
+              <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
+                {branchRequestRunnerError}
               </div>
             ) : null}
 

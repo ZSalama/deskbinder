@@ -88,6 +88,7 @@ async function getCurrentBranch(repoPath: string): Promise<string> {
 }
 
 async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessResult> {
+  const isWorkspace = Boolean(repo.sourceRepoId)
   let repoPath: string
 
   try {
@@ -124,7 +125,7 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
       resolve(repoPath, gitCommonDirResult.stdout.trim())
     )
 
-    if (gitDirPath !== gitCommonDirPath) {
+    if (gitDirPath !== gitCommonDirPath && !isWorkspace) {
       return createReadinessResult(
         'invalid',
         'Local repository is a Git worktree. Select the primary repository instead.',
@@ -149,14 +150,16 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
     )
   }
 
-  try {
-    await validateWorkspaceScript(repoPath, repo.workspaceScriptPath)
-  } catch {
-    return createReadinessResult(
-      'missing_script',
-      'Workspace bootstrap script is missing or not executable.',
-      currentBranch
-    )
+  if (!isWorkspace) {
+    try {
+      await validateWorkspaceScript(repoPath, repo.workspaceScriptPath)
+    } catch {
+      return createReadinessResult(
+        'missing_script',
+        'Workspace bootstrap script is missing or not executable.',
+        currentBranch
+      )
+    }
   }
 
   return createReadinessResult('ready', 'Ready for cloud jobs.', currentBranch)
@@ -166,15 +169,17 @@ export async function buildRepoSyncMetadata(
   config: DeskbinderConfig
 ): Promise<RepoSyncMetadataResponse> {
   const lastSeenAt = Date.now()
-  const activeRepos = config.repos.filter((repo) => !repo.deleted && !repo.sourceRepoId)
+  const activeRepos = config.repos.filter((repo) => !repo.deleted)
   const repos = await Promise.all(
     activeRepos.map(async (repo): Promise<RepoSyncMetadata> => {
       const readiness = await inspectRepoReadiness(repo)
 
       return {
         localRepoId: repo.id,
+        sourceLocalRepoId: repo.sourceRepoId,
         name: repo.name,
         currentBranch: readiness.currentBranch,
+        workspaceBranchName: repo.workspaceBranchName,
         isValid: readiness.readinessStatus === 'ready',
         readinessStatus: readiness.readinessStatus,
         readinessMessage: readiness.readinessMessage,

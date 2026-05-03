@@ -24,6 +24,13 @@ const repoReadinessStatus = v.union(
   v.literal('error')
 )
 
+const branchRequestStatus = v.union(
+  v.literal('queued'),
+  v.literal('claimed'),
+  v.literal('succeeded'),
+  v.literal('failed')
+)
+
 export default defineSchema({
   desktopWorkers: defineTable({
     ownerTokenIdentifier: v.string(),
@@ -49,8 +56,10 @@ export default defineSchema({
     ownerTokenIdentifier: v.string(),
     workerId: v.string(),
     localRepoId: v.string(),
+    sourceLocalRepoId: v.optional(v.string()),
     name: v.string(),
     currentBranch: v.string(),
+    workspaceBranchName: v.optional(v.string()),
     isValid: v.boolean(),
     readinessStatus: repoReadinessStatus,
     readinessMessage: v.optional(v.string()),
@@ -64,6 +73,24 @@ export default defineSchema({
       'workerId',
       'localRepoId'
     ]),
+
+  branchRequests: defineTable({
+    ownerTokenIdentifier: v.string(),
+    targetWorkerId: v.string(),
+    sourceLocalRepoId: v.string(),
+    branchName: v.string(),
+    status: branchRequestStatus,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    claimedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    resultLocalRepoId: v.optional(v.string()),
+    errorMessage: v.optional(v.string())
+  }).index('by_ownerTokenIdentifier_and_status_and_targetWorkerId', [
+    'ownerTokenIdentifier',
+    'status',
+    'targetWorkerId'
+  ]),
 
   agentJobs: defineTable({
     ownerTokenIdentifier: v.string(),
