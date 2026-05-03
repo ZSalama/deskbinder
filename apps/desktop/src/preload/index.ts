@@ -12,7 +12,17 @@ const api: DeskbinderApi = {
   updateAppSettings: (autoRunEnabled) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateAppSettings, autoRunEnabled),
   runWorkspaceScript: (input) => ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceScript, input),
-  deleteWorkspace: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteWorkspace, input)
+  deleteWorkspace: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteWorkspace, input),
+  runAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.runAgent, input),
+  cancelAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.cancelAgent, input),
+  onAgentEvent: (handler) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
+      handler(payload as Parameters<typeof handler>[0])
+    }
+
+    ipcRenderer.on(IPC_CHANNELS.agentEvent, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.agentEvent, listener)
+  }
 }
 
 if (process.contextIsolated) {

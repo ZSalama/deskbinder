@@ -13,6 +13,8 @@ import { Textarea } from '@/components/ui/textarea'
 type PromptComposerProps = {
   agentExecutable: AgentExecutable
   disabled: boolean
+  isRunning: boolean
+  onSubmit: () => void
   prompt: string
   setPrompt: (value: string) => void
 }
@@ -20,12 +22,25 @@ type PromptComposerProps = {
 export function PromptComposer({
   agentExecutable,
   disabled,
+  isRunning,
+  onSubmit,
   prompt,
   setPrompt
 }: PromptComposerProps): React.JSX.Element {
+  const sendDisabled = disabled || isRunning || agentExecutable !== 'codex' || !prompt.trim()
+
   return (
     <div className="shrink-0 border-t border-white/10 px-6 py-5">
-      <div className="mx-auto flex max-w-[980px] items-end gap-3 rounded-lg border border-white/14 bg-[#0b1018]/95 p-2 shadow-[0_16px_70px_rgba(0,0,0,0.28)]">
+      <form
+        className="mx-auto flex max-w-[980px] items-end gap-3 rounded-lg border border-white/14 bg-[#0b1018]/95 p-2 shadow-[0_16px_70px_rgba(0,0,0,0.28)]"
+        onSubmit={(event) => {
+          event.preventDefault()
+
+          if (!sendDisabled) {
+            onSubmit()
+          }
+        }}
+      >
         <div className="flex min-w-0 flex-1 flex-col">
           <Textarea
             className="min-h-12 resize-none border-0 bg-transparent px-3 py-2 text-[15px] leading-6 text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:ring-0"
@@ -81,15 +96,15 @@ export function PromptComposer({
         </Select>
 
         <Button
-          type="button"
+          type="submit"
           size="icon-lg"
           className="mb-1 bg-blue-600 text-white hover:bg-blue-500"
-          disabled={disabled || !prompt.trim()}
+          disabled={sendDisabled}
         >
           <SendHorizontal className="size-5" />
           <span className="sr-only">Send prompt</span>
         </Button>
-      </div>
+      </form>
     </div>
   )
 }

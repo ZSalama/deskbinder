@@ -1,9 +1,14 @@
 import type {
+  AgentRunEvent,
   AppSettings,
+  CancelAgentRunInput,
+  CancelAgentRunResponse,
   CreateRepoInput,
   DeleteWorkspaceInput,
   DeleteWorkspaceResponse,
   DeskbinderConfig,
+  RunAgentInput,
+  RunAgentResponse,
   RunWorkspaceScriptInput,
   RunWorkspaceScriptResponse,
   UpdateRepoInput
@@ -30,4 +35,7 @@ export interface DeskbinderApi {
   updateAppSettings: (autoRunEnabled: AppSettings['autoRunEnabled']) => Promise<DeskbinderConfig>
   runWorkspaceScript: (input: RunWorkspaceScriptInput) => Promise<RunWorkspaceScriptResponse>
   deleteWorkspace: (input: DeleteWorkspaceInput) => Promise<DeleteWorkspaceResponse>
+  runAgent: (input: RunAgentInput) => Promise<RunAgentResponse>
+  cancelAgent: (input: CancelAgentRunInput) => Promise<CancelAgentRunResponse>
+  onAgentEvent: (handler: (event: AgentRunEvent) => void) => () => void
 }

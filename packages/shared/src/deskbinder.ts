@@ -96,6 +96,63 @@ export type DeleteWorkspaceInput = {
   repoId: string
 }
 
+export type AgentRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+
+export type RunAgentInput = {
+  repoId: string
+  promptText: string
+}
+
+export type RunAgentResponse =
+  | {
+      ok: true
+      runId: string
+      repoId: string
+      status: 'running'
+    }
+  | {
+      ok: false
+      errorMessage: string
+    }
+
+export type CancelAgentRunInput = {
+  runId: string
+}
+
+export type CancelAgentRunResponse = {
+  ok: boolean
+  runId: string
+  status: AgentRunStatus
+  errorMessage?: string
+}
+
+export type AgentRunEvent =
+  | {
+      type: 'started'
+      runId: string
+      repoId: string
+      startedAt: number
+    }
+  | {
+      type: 'stdout' | 'stderr'
+      runId: string
+      chunk: string
+      sequence: number
+    }
+  | {
+      type: 'completed'
+      runId: string
+      repoId: string
+      status: Exclude<AgentRunStatus, 'running'>
+      exitCode?: number
+      signal?: string
+      errorMessage?: string
+      lastMessage?: string
+      completedAt: number
+      stdoutTruncated: boolean
+      stderrTruncated: boolean
+    }
+
 export type RunWorkspaceScriptResponse = {
   config: DeskbinderConfig
   result: WorkspaceScriptResult

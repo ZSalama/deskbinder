@@ -11,7 +11,9 @@ type WorkspaceHeaderProps = {
   activeRepo: DashboardRepo | null
   authEmail: string | null
   authReady: boolean
+  isAgentRunning: boolean
   isRunningWorkspaceScript: boolean
+  onCancelAgent: () => void
   onNewWorkspace: () => void
 }
 
@@ -19,7 +21,9 @@ export function WorkspaceHeader({
   activeRepo,
   authEmail,
   authReady,
+  isAgentRunning,
   isRunningWorkspaceScript,
+  onCancelAgent,
   onNewWorkspace
 }: WorkspaceHeaderProps): React.JSX.Element {
   return (
@@ -67,7 +71,8 @@ export function WorkspaceHeader({
           type="button"
           variant="outline"
           className="h-10 border-white/12 bg-white/[0.035] px-4 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-          disabled
+          disabled={!isAgentRunning}
+          onClick={onCancelAgent}
         >
           <Square className="size-4 fill-current" />
           Stop

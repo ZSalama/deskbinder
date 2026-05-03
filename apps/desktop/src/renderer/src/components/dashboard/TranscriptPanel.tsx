@@ -39,14 +39,31 @@ function UserMessage({ item }: { item: TranscriptItem }): React.JSX.Element {
 }
 
 function AgentMessage({ item }: { item: TranscriptItem }): React.JSX.Element {
+  const statusLabel = item.status ? getStatusLabel(item.status) : null
+  const statusClassName =
+    item.status === 'failed' || item.status === 'cancelled' || item.status === 'timed_out'
+      ? 'text-rose-300'
+      : item.status === 'succeeded'
+        ? 'text-emerald-300'
+        : 'text-blue-300'
+
   return (
     <article className="flex justify-start">
       <div className="min-w-0 max-w-[560px]">
         <div className="rounded-lg border border-white/12 bg-[#0c121b]/88 px-5 py-4 text-[15px] leading-6 text-slate-200 shadow-[0_18px_60px_rgba(0,0,0,0.2)]">
-          {item.body}
+          <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-6">
+            {item.body || (item.status === 'running' ? 'Starting Codex...' : '')}
+          </pre>
+
+          {item.stderrBody ? (
+            <pre className="mt-4 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-rose-300/14 bg-rose-950/18 p-3 font-mono text-xs leading-5 text-rose-100/86">
+              {item.stderrBody}
+            </pre>
+          ) : null}
         </div>
 
         <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
+          {statusLabel ? <span className={statusClassName}>{statusLabel}</span> : null}
           {item.durationLabel ? <span>{item.durationLabel}</span> : null}
           {item.completedAtLabel ? <span>Completed {item.completedAtLabel}</span> : null}
           <Button
@@ -62,4 +79,19 @@ function AgentMessage({ item }: { item: TranscriptItem }): React.JSX.Element {
       </div>
     </article>
   )
+}
+
+function getStatusLabel(status: NonNullable<TranscriptItem['status']>): string {
+  switch (status) {
+    case 'running':
+      return 'Running'
+    case 'succeeded':
+      return 'Succeeded'
+    case 'failed':
+      return 'Failed'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'timed_out':
+      return 'Timed out'
+  }
 }

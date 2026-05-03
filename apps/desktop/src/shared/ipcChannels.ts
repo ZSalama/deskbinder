@@ -7,5 +7,8 @@ export const IPC_CHANNELS = {
   updateRepo: 'v1.config.updateRepo',
   updateAppSettings: 'v1.config.updateAppSettings',
   runWorkspaceScript: 'v1.workspace.runScript',
-  deleteWorkspace: 'v1.workspace.delete'
+  deleteWorkspace: 'v1.workspace.delete',
+  runAgent: 'v1.agent.run',
+  cancelAgent: 'v1.agent.cancel',
+  agentEvent: 'v1.agent.event'
 } as const

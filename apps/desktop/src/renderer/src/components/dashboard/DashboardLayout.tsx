@@ -1,5 +1,6 @@
 import { useUser } from '@clerk/react'
 import type {
+  AgentRunEvent,
   DeskbinderConfig,
   RepoSettings,
   UpdateRepoInput,
@@ -7,7 +8,7 @@ import type {
 } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useConvexAuth } from 'convex/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { RepoSettingsDialog } from './RepoSettingsDialog'
 import { RepoSidebar } from './RepoSidebar'
 import { EmptyWorkspaceState } from './EmptyWorkspaceState'
@@ -34,24 +35,24 @@ function buildDashboardRepos(config: DeskbinderConfig | null): DashboardRepo[] {
   return (config?.repos ?? []).filter((repo) => !repo.deleted).map(toDashboardRepo)
 }
 
-function buildTranscript(repo: DashboardRepo): TranscriptItem[] {
-  const branchName = repo.workspaceBranchName ?? 'main'
+function formatTimestamp(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(new Date(timestamp))
+}
 
-  return [
-    {
-      id: `${repo.id}-user`,
-      role: 'user',
-      timestampLabel: '10:32 AM',
-      body: `Create a workspace for ${repo.name} on ${branchName}. Run the configured checks before finishing.`
-    },
-    {
-      id: `${repo.id}-assistant`,
-      role: 'assistant',
-      completedAtLabel: '10:37 AM',
-      durationLabel: repo.sourceRepoId ? '4.1s' : '2.1s',
-      body: `I'll prepare ${repo.name}, start from ${branchName}, and use the configured workspace script.`
-    }
-  ]
+function getAgentCompletionNotice(event: Extract<AgentRunEvent, { type: 'completed' }>): string {
+  switch (event.status) {
+    case 'failed':
+      return event.errorMessage ?? 'Codex failed.'
+    case 'cancelled':
+      return 'Codex run cancelled.'
+    case 'timed_out':
+      return 'Codex timed out.'
+    case 'succeeded':
+      return 'Codex run completed.'
+  }
 }
 
 type RepoSetupNotice = {
@@ -63,6 +64,13 @@ type WorkspaceScriptOutput = {
   repoId: string
   result: WorkspaceScriptResult
 }
+
+type ActiveAgentRun = {
+  repoId: string
+  runId: string
+}
+
+type TranscriptsByRepoId = Record<string, TranscriptItem[]>
 
 type DesktopApiState = {
   api: DeskbinderApi | null
@@ -117,6 +125,9 @@ export function DashboardLayout(): React.JSX.Element {
   const [workspaceScriptOutput, setWorkspaceScriptOutput] = useState<WorkspaceScriptOutput | null>(
     null
   )
+  const [transcriptsByRepoId, setTranscriptsByRepoId] = useState<TranscriptsByRepoId>({})
+  const [activeAgentRun, setActiveAgentRun] = useState<ActiveAgentRun | null>(null)
+  const runRepoIdByRunId = useRef(new Map<string, string>())
   const repos = useMemo(() => buildDashboardRepos(config), [config])
 
   useEffect(() => {
@@ -157,6 +168,143 @@ export function DashboardLayout(): React.JSX.Element {
       isMounted = false
     }
   }, [desktopApi])
+
+  useEffect(() => {
+    if (!desktopApi) {
+      return
+    }
+
+    return desktopApi.onAgentEvent((event) => {
+      if (event.type === 'started') {
+        runRepoIdByRunId.current.set(event.runId, event.repoId)
+        setActiveAgentRun({
+          runId: event.runId,
+          repoId: event.repoId
+        })
+        setTranscriptsByRepoId((currentTranscripts) => {
+          const repoTranscript = currentTranscripts[event.repoId] ?? []
+
+          if (repoTranscript.some((item) => item.id === `${event.runId}-assistant`)) {
+            return currentTranscripts
+          }
+
+          return {
+            ...currentTranscripts,
+            [event.repoId]: [
+              ...repoTranscript,
+              {
+                id: `${event.runId}-assistant`,
+                role: 'assistant',
+                body: '',
+                status: 'running'
+              }
+            ]
+          }
+        })
+        return
+      }
+
+      const repoId = runRepoIdByRunId.current.get(event.runId)
+
+      if (!repoId) {
+        return
+      }
+
+      if (event.type === 'stdout' || event.type === 'stderr') {
+        setTranscriptsByRepoId((currentTranscripts) => {
+          const repoTranscript = currentTranscripts[repoId] ?? []
+          const itemId = `${event.runId}-assistant`
+          const hasAssistantItem = repoTranscript.some((item) => item.id === itemId)
+          const nextTranscript = (hasAssistantItem
+            ? repoTranscript
+            : [
+                ...repoTranscript,
+                {
+                  id: itemId,
+                  role: 'assistant' as const,
+                  body: '',
+                  status: 'running' as const
+                }
+              ]
+          ).map((item) => {
+            if (item.id !== itemId) {
+              return item
+            }
+
+            return event.type === 'stdout'
+              ? {
+                  ...item,
+                  body: `${item.body}${event.chunk}`,
+                  status: 'running' as const
+                }
+              : {
+                  ...item,
+                  stderrBody: `${item.stderrBody ?? ''}${event.chunk}`,
+                  status: 'running' as const
+                }
+          })
+
+          return {
+            ...currentTranscripts,
+            [repoId]: nextTranscript
+          }
+        })
+        return
+      }
+
+      if (event.type !== 'completed') {
+        return
+      }
+
+      const completedEvent = event
+
+      setTranscriptsByRepoId((currentTranscripts) => {
+        const repoTranscript = currentTranscripts[repoId] ?? []
+        const itemId = `${completedEvent.runId}-assistant`
+        const completionNotice = getAgentCompletionNotice(completedEvent)
+        const hasAssistantItem = repoTranscript.some((item) => item.id === itemId)
+        const nextTranscript = (hasAssistantItem
+          ? repoTranscript
+          : [
+              ...repoTranscript,
+              {
+                id: itemId,
+                role: 'assistant' as const,
+                body: '',
+                status: 'running' as const
+              }
+            ]
+        ).map((item) => {
+          if (item.id !== itemId) {
+            return item
+          }
+
+          return {
+            ...item,
+            body: (completedEvent.lastMessage ?? item.body) || completionNotice,
+            status: completedEvent.status,
+            completedAtLabel: formatTimestamp(completedEvent.completedAt)
+          }
+        })
+
+        return {
+          ...currentTranscripts,
+          [repoId]: nextTranscript
+        }
+      })
+      setActiveAgentRun((currentRun) =>
+        currentRun?.runId === completedEvent.runId ? null : currentRun
+      )
+      runRepoIdByRunId.current.delete(completedEvent.runId)
+
+      if (completedEvent.status !== 'succeeded') {
+        setRepoSetupNotice({
+          tone: 'error',
+          message: getAgentCompletionNotice(completedEvent)
+        })
+      }
+    })
+  }, [desktopApi])
   const resolvedSelectedRepoId =
     selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
       ? selectedRepoId
@@ -167,7 +315,8 @@ export function DashboardLayout(): React.JSX.Element {
     [repos, resolvedSelectedRepoId]
   )
 
-  const transcript = activeRepo ? buildTranscript(activeRepo) : []
+  const transcript = activeRepo ? (transcriptsByRepoId[activeRepo.id] ?? []) : []
+  const activeRepoHasAgentRun = !!activeRepo && activeAgentRun?.repoId === activeRepo.id
 
   async function handlePickFolder(): Promise<void> {
     let api: DeskbinderApi
@@ -341,6 +490,112 @@ export function DashboardLayout(): React.JSX.Element {
     }
   }
 
+  async function handleSubmitPrompt(): Promise<void> {
+    const targetRepo = activeRepo
+    const promptText = draftPrompt.trim()
+
+    if (!targetRepo || !promptText || activeAgentRun) {
+      return
+    }
+
+    if (targetRepo.agentExecutable !== 'codex') {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: 'Only the Codex agent is supported right now.'
+      })
+      return
+    }
+
+    const submittedAt = Date.now()
+    setTranscriptsByRepoId((currentTranscripts) => ({
+      ...currentTranscripts,
+      [targetRepo.id]: [
+        ...(currentTranscripts[targetRepo.id] ?? []),
+        {
+          id: `${targetRepo.id}-${submittedAt}-user`,
+          role: 'user',
+          body: promptText,
+          timestampLabel: formatTimestamp(submittedAt)
+        }
+      ]
+    }))
+    setRepoSetupNotice(null)
+
+    try {
+      const response = await getDesktopApi().runAgent({
+        repoId: targetRepo.id,
+        promptText
+      })
+
+      if (!response.ok) {
+        setRepoSetupNotice({
+          tone: 'error',
+          message: response.errorMessage
+        })
+        return
+      }
+
+      runRepoIdByRunId.current.set(response.runId, response.repoId)
+      setActiveAgentRun({
+        runId: response.runId,
+        repoId: response.repoId
+      })
+      setTranscriptsByRepoId((currentTranscripts) => {
+        const repoTranscript = currentTranscripts[response.repoId] ?? []
+
+        if (repoTranscript.some((item) => item.id === `${response.runId}-assistant`)) {
+          return currentTranscripts
+        }
+
+        return {
+          ...currentTranscripts,
+          [response.repoId]: [
+            ...repoTranscript,
+            {
+              id: `${response.runId}-assistant`,
+              role: 'assistant',
+              body: '',
+              status: 'running'
+            }
+          ]
+        }
+      })
+      setDraftPrompt('')
+      setBridgeError(null)
+    } catch (error) {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to start Codex.'
+      })
+    }
+  }
+
+  async function handleCancelAgent(): Promise<void> {
+    const run = activeAgentRun
+
+    if (!run || !activeRepo || run.repoId !== activeRepo.id) {
+      return
+    }
+
+    try {
+      const response = await getDesktopApi().cancelAgent({
+        runId: run.runId
+      })
+
+      if (!response.ok) {
+        setRepoSetupNotice({
+          tone: 'error',
+          message: response.errorMessage ?? 'Unable to cancel Codex.'
+        })
+      }
+    } catch (error) {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to cancel Codex.'
+      })
+    }
+  }
+
   if (isLoadingConfig) {
     return (
       <section className="mx-auto flex h-full min-h-0 w-full min-w-[1024px] max-w-[1400px] items-center justify-center">
@@ -392,7 +647,9 @@ export function DashboardLayout(): React.JSX.Element {
               activeRepo={activeRepo}
               authEmail={user?.primaryEmailAddress?.emailAddress ?? null}
               authReady={isAuthenticated}
+              isAgentRunning={activeRepoHasAgentRun}
               isRunningWorkspaceScript={isRunningWorkspaceScript}
+              onCancelAgent={() => void handleCancelAgent()}
               onNewWorkspace={handleOpenRunWorkspaceDialog}
             />
 
@@ -439,8 +696,10 @@ export function DashboardLayout(): React.JSX.Element {
             {activeRepo ? <TranscriptPanel items={transcript} /> : <EmptyWorkspaceState />}
 
             <PromptComposer
-              disabled={!activeRepo}
+              disabled={!activeRepo || activeAgentRun !== null || activeRepo.agentExecutable !== 'codex'}
+              isRunning={activeAgentRun !== null}
               agentExecutable={activeRepo?.agentExecutable ?? 'codex'}
+              onSubmit={() => void handleSubmitPrompt()}
               prompt={draftPrompt}
               setPrompt={(value) => setDraftPrompt(value)}
             />

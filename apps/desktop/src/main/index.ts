@@ -10,6 +10,7 @@ import {
   collectTrackedWorkspaceProcesses,
   terminateTrackedWorkspaceProcesses
 } from './services/processTracking'
+import { AgentRunner } from './services/agentRunner'
 import { runWorkspaceScript } from './services/workspaceScript'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
@@ -69,6 +70,7 @@ async function pickFolder(window: BrowserWindow | null): Promise<FolderPickResul
 
 let rendererServer: RendererServer | null = null
 let localConfigStore: LocalConfigStore | null = null
+let agentRunner: AgentRunner | null = null
 let activeWorkspaceScriptRun: Promise<RunWorkspaceScriptResponse> | null = null
 let hasCompletedQuitCleanup = false
 let quitCleanupPromise: Promise<void> | null = null
@@ -91,6 +93,10 @@ async function getProductionRendererUrl(): Promise<URL> {
 }
 
 async function cleanupBeforeQuit(): Promise<void> {
+  if (agentRunner) {
+    await agentRunner.cancelActiveRun()
+  }
+
   if (localConfigStore) {
     const reposWithTrackedProcesses = (await localConfigStore.read()).repos.filter(
       (repo) => !repo.deleted
@@ -264,6 +270,7 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
   localConfigStore = new LocalConfigStore(app)
+  agentRunner = new AgentRunner(localConfigStore)
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -354,6 +361,20 @@ app.whenReady().then(() => {
       localConfigStore,
       repoId
     })
+  })
+  ipcMain.handle(IPC_CHANNELS.runAgent, async (event, input) => {
+    if (!agentRunner) {
+      throw new Error('Agent runner is unavailable.')
+    }
+
+    return agentRunner.run(input, event.sender)
+  })
+  ipcMain.handle(IPC_CHANNELS.cancelAgent, (_, input) => {
+    if (!agentRunner) {
+      throw new Error('Agent runner is unavailable.')
+    }
+
+    return agentRunner.cancel(input)
   })
 
   void createWindow()
