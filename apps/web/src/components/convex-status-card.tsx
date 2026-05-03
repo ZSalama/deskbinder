@@ -3,7 +3,42 @@
 import { SignInButton, SignedIn, SignedOut, UserButton, useAuth } from '@clerk/nextjs'
 import { api } from '@deskbinder/convex-client'
 import { useQuery } from 'convex/react'
+import { useEffect, useState } from 'react'
 import { ConvexProviders } from './providers'
+
+const WORKER_ONLINE_THRESHOLD_MS = 90_000
+
+type DesktopWorkerSummary = {
+  workerId: string
+  name: string
+  status: 'online' | 'busy' | 'offline'
+  autoRunEnabled: boolean
+  lastSeenAt: number | null
+}
+
+function formatLastSeen(lastSeenAt: number | null): string {
+  if (!lastSeenAt) {
+    return 'No heartbeat yet'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit'
+  }).format(new Date(lastSeenAt))
+}
+
+function getWorkerDisplayStatus(worker: DesktopWorkerSummary, now: number): string {
+  if (
+    worker.status !== 'offline' &&
+    worker.lastSeenAt &&
+    now - worker.lastSeenAt <= WORKER_ONLINE_THRESHOLD_MS
+  ) {
+    return worker.status === 'busy' ? 'Busy' : 'Online'
+  }
+
+  return 'Offline'
+}
 
 function MissingAuthKey(): React.JSX.Element {
   return (
@@ -11,10 +46,12 @@ function MissingAuthKey(): React.JSX.Element {
       <p className="text-xs font-semibold uppercase tracking-[0.32em] text-amber-200/75">
         Setup required
       </p>
-      <h2 className="text-3xl font-semibold tracking-tight text-white">Add the web Clerk public key</h2>
+      <h2 className="text-3xl font-semibold tracking-tight text-white">
+        Add the web Clerk public key
+      </h2>
       <p className="text-sm leading-7 text-amber-100/85">
-        Set <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> in <code>apps/web/.env.local</code>,
-        then restart the Next dev server.
+        Set <code>NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY</code> in <code>apps/web/.env.local</code>, then
+        restart the Next dev server.
       </p>
     </div>
   )
@@ -23,6 +60,16 @@ function MissingAuthKey(): React.JSX.Element {
 function ConnectedStatus(): React.JSX.Element {
   const { isLoaded, isSignedIn } = useAuth()
   const viewer = useQuery(api.auth.viewer, isSignedIn ? {} : 'skip')
+  const workers = useQuery(api.workers.listDesktopWorkers, isSignedIn ? {} : 'skip')
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNow(Date.now())
+    }, 30_000)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   if (!isLoaded) {
     return <p className="text-sm text-slate-300/80">Loading authentication state...</p>
@@ -72,9 +119,65 @@ function ConnectedStatus(): React.JSX.Element {
           <div className="rounded-[1.75rem] border border-white/10 bg-black/25 p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Current user</p>
             {viewer ? (
-              <p className="mt-3 text-2xl font-semibold text-white">{viewer.name ?? 'Unknown user'}</p>
+              <p className="mt-3 text-2xl font-semibold text-white">
+                {viewer.name ?? 'Unknown user'}
+              </p>
             ) : (
               <p className="mt-3 text-sm text-slate-300/80">Loading your profile...</p>
+            )}
+          </div>
+
+          <div className="rounded-[1.75rem] border border-white/10 bg-black/25 p-5">
+            <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Desktop workers</p>
+            {!workers ? (
+              <p className="mt-3 text-sm text-slate-300/80">Loading desktop workers...</p>
+            ) : workers.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-300/80">
+                Open the desktop app with this account to register a worker.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {workers.map((worker) => {
+                  const displayStatus = getWorkerDisplayStatus(worker, now)
+
+                  return (
+                    <div
+                      className="rounded-2xl border border-white/8 bg-white/[0.03] p-4"
+                      key={worker.workerId}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-white">{worker.name}</p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            Worker {worker.workerId.slice(0, 8)}
+                          </p>
+                        </div>
+                        <span
+                          className={
+                            displayStatus === 'Offline'
+                              ? 'rounded-full border border-slate-400/20 px-2.5 py-1 text-xs font-medium text-slate-300'
+                              : 'rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-100'
+                          }
+                        >
+                          {displayStatus}
+                        </span>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-300/80">
+                        <div>
+                          <p className="uppercase tracking-[0.2em] text-slate-500">Last seen</p>
+                          <p className="mt-1 text-slate-200">{formatLastSeen(worker.lastSeenAt)}</p>
+                        </div>
+                        <div>
+                          <p className="uppercase tracking-[0.2em] text-slate-500">Auto-run</p>
+                          <p className="mt-1 text-slate-200">
+                            {worker.autoRunEnabled ? 'Enabled' : 'Disabled'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         </div>

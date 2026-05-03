@@ -3,8 +3,7 @@ import type {
   AgentRunEvent,
   DeskbinderConfig,
   RepoSettings,
-  UpdateRepoInput,
-  WorkspaceScriptResult
+  UpdateRepoInput
 } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useConvexAuth } from 'convex/react'
@@ -17,6 +16,7 @@ import { RunWorkspaceDialog } from './RunWorkspaceDialog'
 import { TranscriptPanel } from './TranscriptPanel'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import type { DashboardRepo, TranscriptItem } from './types'
+import { useWorkerHeartbeat } from '../../hooks/useWorkerHeartbeat'
 
 function getPathBasename(path: string): string {
   const normalizedPath = path.replace(/\/+$/, '')
@@ -58,11 +58,6 @@ function getAgentCompletionNotice(event: Extract<AgentRunEvent, { type: 'complet
 type RepoSetupNotice = {
   tone: 'error' | 'success'
   message: string
-}
-
-type WorkspaceScriptOutput = {
-  repoId: string
-  result: WorkspaceScriptResult
 }
 
 type ActiveAgentRun = {
@@ -122,13 +117,14 @@ export function DashboardLayout(): React.JSX.Element {
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
   const [bridgeError, setBridgeError] = useState<string | null>(initialBridgeError)
   const [repoSetupNotice, setRepoSetupNotice] = useState<RepoSetupNotice | null>(null)
-  const [workspaceScriptOutput, setWorkspaceScriptOutput] = useState<WorkspaceScriptOutput | null>(
-    null
-  )
   const [transcriptsByRepoId, setTranscriptsByRepoId] = useState<TranscriptsByRepoId>({})
   const [activeAgentRun, setActiveAgentRun] = useState<ActiveAgentRun | null>(null)
   const runRepoIdByRunId = useRef(new Map<string, string>())
   const repos = useMemo(() => buildDashboardRepos(config), [config])
+  const { error: workerHeartbeatError } = useWorkerHeartbeat({
+    config,
+    enabled: isAuthenticated
+  })
 
   useEffect(() => {
     if (!desktopApi) {
@@ -215,17 +211,18 @@ export function DashboardLayout(): React.JSX.Element {
           const repoTranscript = currentTranscripts[repoId] ?? []
           const itemId = `${event.runId}-assistant`
           const hasAssistantItem = repoTranscript.some((item) => item.id === itemId)
-          const nextTranscript = (hasAssistantItem
-            ? repoTranscript
-            : [
-                ...repoTranscript,
-                {
-                  id: itemId,
-                  role: 'assistant' as const,
-                  body: '',
-                  status: 'running' as const
-                }
-              ]
+          const nextTranscript = (
+            hasAssistantItem
+              ? repoTranscript
+              : [
+                  ...repoTranscript,
+                  {
+                    id: itemId,
+                    role: 'assistant' as const,
+                    body: '',
+                    status: 'running' as const
+                  }
+                ]
           ).map((item) => {
             if (item.id !== itemId) {
               return item
@@ -263,17 +260,18 @@ export function DashboardLayout(): React.JSX.Element {
         const itemId = `${completedEvent.runId}-assistant`
         const completionNotice = getAgentCompletionNotice(completedEvent)
         const hasAssistantItem = repoTranscript.some((item) => item.id === itemId)
-        const nextTranscript = (hasAssistantItem
-          ? repoTranscript
-          : [
-              ...repoTranscript,
-              {
-                id: itemId,
-                role: 'assistant' as const,
-                body: '',
-                status: 'running' as const
-              }
-            ]
+        const nextTranscript = (
+          hasAssistantItem
+            ? repoTranscript
+            : [
+                ...repoTranscript,
+                {
+                  id: itemId,
+                  role: 'assistant' as const,
+                  body: '',
+                  status: 'running' as const
+                }
+              ]
         ).map((item) => {
           if (item.id !== itemId) {
             return item
@@ -409,9 +407,6 @@ export function DashboardLayout(): React.JSX.Element {
 
       setConfig(response.config)
       setSelectedRepoId(response.selectedRepoId)
-      setWorkspaceScriptOutput((currentOutput) =>
-        currentOutput?.repoId === response.deletedRepoId ? null : currentOutput
-      )
       setRepoForSettings(null)
       setIsSettingsOpen(false)
       setRepoSetupNotice({
@@ -463,17 +458,10 @@ export function DashboardLayout(): React.JSX.Element {
       setConfig(response.config)
       setSelectedRepoId(nextSelectedRepoId)
       setRepoForWorkspaceScript(null)
-      setWorkspaceScriptOutput({
-        repoId: nextSelectedRepoId,
-        result: response.result
-      })
       setIsRunWorkspaceDialogOpen(false)
       setRepoSetupNotice(
         response.result.ok
-          ? {
-              tone: 'success',
-              message: `Workspace ready for branch ${response.result.branchName}.`
-            }
+          ? null
           : {
               tone: 'error',
               message: response.result.errorMessage ?? 'Workspace script failed.'
@@ -665,38 +653,18 @@ export function DashboardLayout(): React.JSX.Element {
               </div>
             ) : null}
 
-            {activeRepo &&
-            workspaceScriptOutput &&
-            workspaceScriptOutput.repoId === activeRepo.id ? (
-              <div
-                className={
-                  workspaceScriptOutput.result.ok
-                    ? 'border-b border-emerald-300/12 bg-emerald-300/6 px-6 py-5'
-                    : 'border-b border-rose-300/12 bg-rose-300/6 px-6 py-5'
-                }
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
-                      Workspace Script Result
-                    </p>
-                    <p className="mt-2 text-sm text-slate-100">
-                      {workspaceScriptOutput.result.ok
-                        ? `Branch ${workspaceScriptOutput.result.branchName} completed.`
-                        : `Branch ${workspaceScriptOutput.result.branchName} failed.`}
-                    </p>
-                  </div>
-                </div>
-                <pre className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/72 p-4 text-xs leading-6 text-slate-200">
-                  {JSON.stringify(workspaceScriptOutput.result, null, 2)}
-                </pre>
+            {workerHeartbeatError ? (
+              <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
+                {workerHeartbeatError}
               </div>
             ) : null}
 
             {activeRepo ? <TranscriptPanel items={transcript} /> : <EmptyWorkspaceState />}
 
             <PromptComposer
-              disabled={!activeRepo || activeAgentRun !== null || activeRepo.agentExecutable !== 'codex'}
+              disabled={
+                !activeRepo || activeAgentRun !== null || activeRepo.agentExecutable !== 'codex'
+              }
               isRunning={activeAgentRun !== null}
               agentExecutable={activeRepo?.agentExecutable ?? 'codex'}
               onSubmit={() => void handleSubmitPrompt()}
