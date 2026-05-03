@@ -1,19 +1,7 @@
-import { Bot, CornerDownRight, Sparkles } from 'lucide-react'
+import { Copy } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/lib/utils'
 import type { TranscriptItem } from './types'
-
-const roleStyles: Record<TranscriptItem['role'], string> = {
-  assistant: 'border-cyan-300/18 bg-cyan-300/8',
-  system: 'border-emerald-300/16 bg-emerald-300/7',
-  user: 'border-white/10 bg-white/[0.05]'
-}
-
-const roleIcons = {
-  assistant: Bot,
-  system: Sparkles,
-  user: CornerDownRight
-}
 
 type TranscriptPanelProps = {
   items: TranscriptItem[]
@@ -21,42 +9,57 @@ type TranscriptPanelProps = {
 
 export function TranscriptPanel({ items }: TranscriptPanelProps): React.JSX.Element {
   return (
-    <ScrollArea className="min-h-0 flex-1 px-6 py-5">
-      <div className="space-y-4 pb-2">
-        {items.map((item) => {
-          const Icon = roleIcons[item.role]
-
-          return (
-            <article
-              key={item.id}
-              className={cn(
-                'rounded-[24px] border px-5 py-4 shadow-[0_12px_40px_rgba(0,0,0,0.12)]',
-                roleStyles[item.role]
-              )}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="inline-flex items-center gap-2">
-                  <div className="flex size-8 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-slate-100">
-                    <Icon className="size-4" />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-300/72">
-                      {item.role}
-                    </p>
-                    {item.timestampLabel ? (
-                      <p className="mt-1 text-[11px] text-slate-400">{item.timestampLabel}</p>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-100">
-                {item.body}
-              </p>
-            </article>
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="mx-auto flex w-full max-w-[880px] flex-col gap-6 px-8 py-6">
+        {items.map((item) =>
+          item.role === 'user' ? (
+            <UserMessage key={item.id} item={item} />
+          ) : (
+            <AgentMessage key={item.id} item={item} />
           )
-        })}
+        )}
       </div>
     </ScrollArea>
+  )
+}
+
+function UserMessage({ item }: { item: TranscriptItem }): React.JSX.Element {
+  return (
+    <article className="flex justify-end">
+      <div className="min-w-0 max-w-[560px]">
+        <div className="rounded-lg border border-blue-300/10 bg-[#17243a] px-5 py-4 text-[15px] leading-6 text-slate-100 shadow-[0_16px_50px_rgba(0,0,0,0.2)]">
+          {item.body}
+        </div>
+        {item.timestampLabel ? (
+          <p className="mt-1 text-right text-xs text-slate-500">{item.timestampLabel}</p>
+        ) : null}
+      </div>
+    </article>
+  )
+}
+
+function AgentMessage({ item }: { item: TranscriptItem }): React.JSX.Element {
+  return (
+    <article className="flex justify-start">
+      <div className="min-w-0 max-w-[560px]">
+        <div className="rounded-lg border border-white/12 bg-[#0c121b]/88 px-5 py-4 text-[15px] leading-6 text-slate-200 shadow-[0_18px_60px_rgba(0,0,0,0.2)]">
+          {item.body}
+        </div>
+
+        <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
+          {item.durationLabel ? <span>{item.durationLabel}</span> : null}
+          {item.completedAtLabel ? <span>Completed {item.completedAtLabel}</span> : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-slate-500 hover:bg-white/8 hover:text-slate-200"
+          >
+            <Copy className="size-4" />
+            <span className="sr-only">Copy</span>
+          </Button>
+        </div>
+      </div>
+    </article>
   )
 }

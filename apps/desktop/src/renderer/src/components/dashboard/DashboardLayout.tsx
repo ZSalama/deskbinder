@@ -35,24 +35,21 @@ function buildDashboardRepos(config: DeskbinderConfig | null): DashboardRepo[] {
 }
 
 function buildTranscript(repo: DashboardRepo): TranscriptItem[] {
+  const branchName = repo.workspaceBranchName ?? 'main'
+
   return [
     {
       id: `${repo.id}-user`,
       role: 'user',
-      timestampLabel: 'Draft prompt',
-      body: 'Set up the dashboard shell for this repository. Keep the repo list visible, preserve the auth gate, and make the composer look like a real Codex entry point.'
+      timestampLabel: '10:32 AM',
+      body: `Create a workspace for ${repo.name} on ${branchName}. Run the configured checks before finishing.`
     },
     {
       id: `${repo.id}-assistant`,
       role: 'assistant',
-      timestampLabel: 'Placeholder Codex response',
-      body: 'Workspace acknowledged. The current UI pass stops at layout, local state, and safe renderer-side interactions. No agent process will start yet.'
-    },
-    {
-      id: `${repo.id}-system`,
-      role: 'system',
-      timestampLabel: 'Workspace status',
-      body: 'Main process boundary preserved. Folder picker, repo persistence, and add-repo validation now run through preload and main.'
+      completedAtLabel: '10:37 AM',
+      durationLabel: repo.sourceRepoId ? '4.1s' : '2.1s',
+      body: `I'll prepare ${repo.name}, start from ${branchName}, and use the configured workspace script.`
     }
   ]
 }
@@ -110,6 +107,7 @@ export function DashboardLayout(): React.JSX.Element {
   const [isPickingFolder, setIsPickingFolder] = useState(false)
   const [draftPrompt, setDraftPrompt] = useState('')
   const [repoForSettings, setRepoForSettings] = useState<DashboardRepo | null>(null)
+  const [repoForWorkspaceScript, setRepoForWorkspaceScript] = useState<DashboardRepo | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isRunWorkspaceDialogOpen, setIsRunWorkspaceDialogOpen] = useState(false)
   const [isRunningWorkspaceScript, setIsRunningWorkspaceScript] = useState(false)
@@ -287,11 +285,20 @@ export function DashboardLayout(): React.JSX.Element {
       return
     }
 
+    setRepoForWorkspaceScript(activeRepo)
+    setIsRunWorkspaceDialogOpen(true)
+  }
+
+  function handleOpenRunWorkspaceDialogForRepo(repo: DashboardRepo): void {
+    setSelectedRepoId(repo.id)
+    setRepoForWorkspaceScript(repo)
     setIsRunWorkspaceDialogOpen(true)
   }
 
   async function handleRunWorkspaceScript(branchName: string): Promise<void> {
-    if (!activeRepo) {
+    const targetRepo = repoForWorkspaceScript ?? activeRepo
+
+    if (!targetRepo) {
       return
     }
 
@@ -299,13 +306,14 @@ export function DashboardLayout(): React.JSX.Element {
 
     try {
       const response = await getDesktopApi().runWorkspaceScript({
-        repoId: activeRepo.id,
+        repoId: targetRepo.id,
         branchName
       })
-      const nextSelectedRepoId = response.selectedRepoId ?? activeRepo.id
+      const nextSelectedRepoId = response.selectedRepoId ?? targetRepo.id
 
       setConfig(response.config)
       setSelectedRepoId(nextSelectedRepoId)
+      setRepoForWorkspaceScript(null)
       setWorkspaceScriptOutput({
         repoId: nextSelectedRepoId,
         result: response.result
@@ -361,15 +369,17 @@ export function DashboardLayout(): React.JSX.Element {
 
   return (
     <>
-      <section className="mx-auto flex h-full min-h-0 w-full min-w-[1024px] max-w-[1400px] flex-col">
-        <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] gap-5">
+      <section className="flex h-full min-h-0 w-full min-w-[1024px] flex-col">
+        <div className="grid min-h-0 flex-1 grid-cols-[352px_minmax(0,1fr)]">
           <RepoSidebar
             accountEmail={user?.primaryEmailAddress?.emailAddress ?? 'unknown email'}
             accountName={user?.fullName ?? user?.username ?? 'Account'}
+            accountImageUrl={user?.imageUrl ?? null}
             autoRunEnabled={config?.appSettings.autoRunEnabled ?? false}
             isPickingFolder={isPickingFolder}
             lastPickedFolder={selectedFolder}
             onOpenSettings={handleOpenSettings}
+            onNewWorkspace={handleOpenRunWorkspaceDialogForRepo}
             onSelectRepo={setSelectedRepoId}
             onSetupRepo={() => void handlePickFolder()}
             onToggleAutoRun={(nextValue) => void handleToggleAutoRun(nextValue)}
@@ -377,7 +387,7 @@ export function DashboardLayout(): React.JSX.Element {
             selectedRepoId={resolvedSelectedRepoId}
           />
 
-          <section className="flex min-h-[720px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/72 shadow-[0_28px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
+          <section className="flex min-h-0 flex-col overflow-hidden border-l border-white/10 bg-[#080d14]/88 shadow-[inset_1px_0_0_rgba(255,255,255,0.03)] backdrop-blur-2xl">
             <WorkspaceHeader
               activeRepo={activeRepo}
               authEmail={user?.primaryEmailAddress?.emailAddress ?? null}
@@ -430,6 +440,7 @@ export function DashboardLayout(): React.JSX.Element {
 
             <PromptComposer
               disabled={!activeRepo}
+              agentExecutable={activeRepo?.agentExecutable ?? 'codex'}
               prompt={draftPrompt}
               setPrompt={(value) => setDraftPrompt(value)}
             />
@@ -447,10 +458,16 @@ export function DashboardLayout(): React.JSX.Element {
       />
       <RunWorkspaceDialog
         isSubmitting={isRunningWorkspaceScript}
-        onOpenChange={setIsRunWorkspaceDialogOpen}
+        onOpenChange={(open) => {
+          setIsRunWorkspaceDialogOpen(open)
+
+          if (!open) {
+            setRepoForWorkspaceScript(null)
+          }
+        }}
         onSubmit={(branchName) => void handleRunWorkspaceScript(branchName)}
         open={isRunWorkspaceDialogOpen}
-        repo={activeRepo}
+        repo={repoForWorkspaceScript ?? activeRepo}
       />
     </>
   )

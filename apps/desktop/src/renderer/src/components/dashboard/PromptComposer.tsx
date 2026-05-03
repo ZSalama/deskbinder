@@ -1,49 +1,94 @@
-import { ArrowUpRight } from 'lucide-react'
+import { Bot, Paperclip, SendHorizontal, Sparkles, Terminal } from 'lucide-react'
+import type { AgentExecutable } from '@deskbinder/shared/deskbinder'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
 type PromptComposerProps = {
+  agentExecutable: AgentExecutable
   disabled: boolean
   prompt: string
   setPrompt: (value: string) => void
 }
 
 export function PromptComposer({
+  agentExecutable,
   disabled,
   prompt,
   setPrompt
 }: PromptComposerProps): React.JSX.Element {
   return (
-    <div className="border-t border-white/10 px-6 py-5">
-      <div className="rounded-[26px] border border-white/10 bg-white/[0.035] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.18)]">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
-              Prompt Composer
-            </p>
-            <p className="mt-2 text-sm leading-6 text-slate-300/74">
-              UI-only input shell for future Codex jobs. Submission is intentionally inactive in
-              this pass.
-            </p>
-          </div>
-
-          <Button
-            type="button"
-            className="h-10 rounded-2xl bg-cyan-300 text-slate-950 hover:bg-cyan-200"
+    <div className="shrink-0 border-t border-white/10 px-6 py-5">
+      <div className="mx-auto flex max-w-[980px] items-end gap-3 rounded-lg border border-white/14 bg-[#0b1018]/95 p-2 shadow-[0_16px_70px_rgba(0,0,0,0.28)]">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Textarea
+            className="min-h-12 resize-none border-0 bg-transparent px-3 py-2 text-[15px] leading-6 text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:ring-0"
             disabled={disabled}
-          >
-            Send
-            <ArrowUpRight className="size-4" />
-          </Button>
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Ask the agent to work in this repository..."
+            value={prompt}
+          />
+
+          <div className="flex items-center gap-1 px-1 pb-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-slate-400 hover:bg-white/8 hover:text-white"
+              disabled={disabled}
+            >
+              <Paperclip className="size-5" />
+              <span className="sr-only">Attach file</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-slate-400 hover:bg-white/8 hover:text-white"
+              disabled={disabled}
+            >
+              <Terminal className="size-5" />
+              <span className="sr-only">Terminal</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-slate-400 hover:bg-white/8 hover:text-white"
+              disabled={disabled}
+            >
+              <Sparkles className="size-5" />
+              <span className="sr-only">Agent mode</span>
+            </Button>
+          </div>
         </div>
 
-        <Textarea
-          className="mt-4 min-h-28 resize-none rounded-[20px] border-white/10 bg-slate-950/65 px-4 py-3 text-slate-100 placeholder:text-slate-500"
-          disabled={disabled}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Describe the job you want Codex to run in this repository..."
-          value={prompt}
-        />
+        <Select value={agentExecutable} disabled={disabled}>
+          <SelectTrigger className="mb-1 h-10 w-[180px] border-white/10 bg-white/[0.035] px-3 text-slate-200 hover:bg-white/[0.075]">
+            <Bot className="size-4 text-slate-400" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="border-white/10 bg-slate-950 text-slate-100">
+            <SelectItem value="codex">Codex</SelectItem>
+            <SelectItem value="claude">Claude</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Button
+          type="button"
+          size="icon-lg"
+          className="mb-1 bg-blue-600 text-white hover:bg-blue-500"
+          disabled={disabled || !prompt.trim()}
+        >
+          <SendHorizontal className="size-5" />
+          <span className="sr-only">Send prompt</span>
+        </Button>
       </div>
     </div>
   )

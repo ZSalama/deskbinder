@@ -1,7 +1,6 @@
 import { SignIn, SignUp, useAuth } from '@clerk/react'
 import { useConvexAuth } from 'convex/react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import wavyLines from './assets/wavy-lines.svg'
 import { DashboardLayout } from './components/dashboard/DashboardLayout'
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -13,14 +12,11 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="h-dvh min-w-[1024px] overflow-hidden bg-[#07131a] text-slate-100">
-      <div className="fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(46,144,250,0.18),transparent_30%),radial-gradient(circle_at_80%_10%,rgba(16,185,129,0.14),transparent_28%),linear-gradient(180deg,#061018_0%,#07131a_42%,#020608_100%)]" />
-      <div
-        className="fixed inset-0 opacity-20 mix-blend-screen"
-        style={{ backgroundImage: `url(${wavyLines})` }}
-      />
+    <div className="h-dvh min-w-[1024px] overflow-hidden bg-[#070b12] text-slate-100">
+      <div className="fixed inset-0 bg-[linear-gradient(135deg,#111923_0%,#090e15_46%,#05070b_100%)]" />
+      <div className="fixed inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(180deg,rgba(255,255,255,0.026)_1px,transparent_1px)] bg-[size:80px_80px] opacity-20" />
 
-      <main className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden px-6 py-8">
+      <main className="relative z-10 flex h-full min-h-0 flex-col overflow-hidden">
         <Routes>
           <Route path="/" element={<HomeRedirect />} />
           <Route path="/sign-in/*" element={<AuthPage mode="sign-in" />} />
@@ -49,8 +45,8 @@ function ConfigurationError(): React.JSX.Element {
         </p>
         <h1 className="mt-4 text-3xl font-semibold text-white">Add your auth environment</h1>
         <p className="mt-4 text-sm leading-6 text-slate-200/80">
-          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> and <code>VITE_CONVEX_URL</code> in
-          your environment before starting the app.
+          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> and <code>VITE_CONVEX_URL</code> in your
+          environment before starting the app.
         </p>
       </section>
     </main>

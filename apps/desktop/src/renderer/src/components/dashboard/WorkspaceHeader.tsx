@@ -1,10 +1,10 @@
-import { Bot, Plus, ShieldCheck } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { MoreHorizontal, Play, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import type { DashboardRepo } from './types'
 
-function getWorkspaceScriptPath(repo: DashboardRepo): string {
-  return repo.workspaceScriptPath.trim() || `${repo.repoPath}/ainewworkspace`
+function getBranchLabel(repo: DashboardRepo): string {
+  return repo.workspaceBranchName || 'main'
 }
 
 type WorkspaceHeaderProps = {
@@ -23,75 +23,66 @@ export function WorkspaceHeader({
   onNewWorkspace
 }: WorkspaceHeaderProps): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-5">
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className="bg-cyan-300/16 text-cyan-100">Codex Workspace</Badge>
-            <Badge variant="outline" className="border-white/10 text-slate-300">
-              UI Only
-            </Badge>
-            {activeRepo ? (
-              <Badge variant="outline" className="border-emerald-300/20 text-emerald-100">
-                Active Repo
-              </Badge>
-            ) : null}
-            <Badge
-              variant="outline"
-              className={
-                authReady ? 'border-cyan-300/20 text-cyan-100' : 'border-white/10 text-slate-300'
-              }
-            >
-              {authReady ? 'Convex Auth Ready' : 'Connecting Convex Auth'}
-            </Badge>
-          </div>
-
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white">
-            {activeRepo ? activeRepo.name : 'Select a repo to start shaping the workspace'}
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300/78">
-            {activeRepo
-              ? 'This shell is ready for prompt composition, transcript display, and future local job wiring.'
-              : 'Choose a repository from the rail to inspect the dashboard layout, prompt composer, and placeholder Codex transcript.'}
-          </p>
-        </div>
-
-        {activeRepo ? (
-          <Button
-            type="button"
-            className="h-10 rounded-2xl bg-white text-slate-950 hover:bg-slate-100"
-            disabled={isRunningWorkspaceScript}
-            onClick={onNewWorkspace}
+    <header className="flex h-[92px] shrink-0 items-center justify-between border-b border-white/10 px-8">
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <h2 className="truncate text-xl font-semibold tracking-tight text-slate-100">
+            {activeRepo ? activeRepo.name : 'deskbinder'}
+          </h2>
+          {activeRepo ? (
+            <>
+              <span className="text-xl text-slate-500">/</span>
+              <span className="truncate text-xl font-semibold tracking-tight text-blue-400">
+                {getBranchLabel(activeRepo)}
+              </span>
+            </>
+          ) : null}
+          <Badge
+            variant="outline"
+            className={
+              authReady
+                ? 'ml-3 h-8 border-emerald-400/24 bg-emerald-400/8 px-4 text-sm text-emerald-300'
+                : 'ml-3 h-8 border-white/10 bg-white/[0.035] px-4 text-sm text-slate-300'
+            }
           >
-            <Plus className="size-4" />
-            {isRunningWorkspaceScript ? 'Running Script...' : 'New Workspace'}
-          </Button>
-        ) : null}
+            <span className="mr-2 size-2 rounded-full bg-current" />
+            {authReady ? 'Connected' : 'Connecting'}
+          </Badge>
+        </div>
+        {authEmail ? <p className="mt-2 truncate text-xs text-slate-500">{authEmail}</p> : null}
       </div>
 
-      {activeRepo ? (
-        <div className="flex flex-wrap items-center gap-3 text-[12px] text-slate-300/80">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-            <Bot className="size-3.5 text-cyan-200" />
-            Draft Codex transcript shell
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
-            <ShieldCheck className="size-3.5 text-emerald-200" />
-            Renderer remains unprivileged
-          </div>
-          {authEmail ? (
-            <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
-              {authEmail}
-            </code>
-          ) : null}
-          <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
-            {activeRepo.repoPath}
-          </code>
-          <code className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-200">
-            {getWorkspaceScriptPath(activeRepo)}
-          </code>
-        </div>
-      ) : null}
-    </div>
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 border-white/12 bg-white/[0.035] px-4 text-blue-300 hover:bg-blue-500/10 hover:text-blue-200"
+          disabled={!activeRepo || isRunningWorkspaceScript}
+          onClick={onNewWorkspace}
+        >
+          <Play className="size-4 fill-current" />
+          Run
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 border-white/12 bg-white/[0.035] px-4 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+          disabled
+        >
+          <Square className="size-4 fill-current" />
+          Stop
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-lg"
+          className="border-white/12 bg-white/[0.035] text-slate-300 hover:bg-white/[0.075] hover:text-white"
+          disabled={!activeRepo}
+        >
+          <MoreHorizontal className="size-5" />
+          <span className="sr-only">More actions</span>
+        </Button>
+      </div>
+    </header>
   )
 }

@@ -8,7 +8,9 @@ export type DashboardRepo = RepoSettings & {
 
 export type TranscriptItem = {
   id: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant'
   body: string
+  completedAtLabel?: string
+  durationLabel?: string
   timestampLabel?: string
 }
