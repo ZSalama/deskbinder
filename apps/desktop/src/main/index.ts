@@ -11,6 +11,7 @@ import {
   terminateTrackedWorkspaceProcesses
 } from './services/processTracking'
 import { AgentRunner } from './services/agentRunner'
+import { buildRepoSyncMetadata } from './services/repoSyncMetadata'
 import { runWorkspaceScript } from './services/workspaceScript'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
@@ -312,6 +313,13 @@ app.whenReady().then(() => {
     }
 
     return localConfigStore.updateAppSettings(autoRunEnabled)
+  })
+  ipcMain.handle(IPC_CHANNELS.getRepoSyncMetadata, async () => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    return buildRepoSyncMetadata(await localConfigStore.read())
   })
   ipcMain.handle(IPC_CHANNELS.runWorkspaceScript, async (_, input) => {
     if (!localConfigStore) {

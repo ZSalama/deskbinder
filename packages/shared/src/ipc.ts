@@ -7,6 +7,7 @@ import type {
   DeleteWorkspaceInput,
   DeleteWorkspaceResponse,
   DeskbinderConfig,
+  RepoSyncMetadataResponse,
   RunAgentInput,
   RunAgentResponse,
   RunWorkspaceScriptInput,
@@ -33,6 +34,7 @@ export interface DeskbinderApi {
   createRepo: (input: CreateRepoInput) => Promise<DeskbinderConfig>
   updateRepo: (input: UpdateRepoInput) => Promise<DeskbinderConfig>
   updateAppSettings: (autoRunEnabled: AppSettings['autoRunEnabled']) => Promise<DeskbinderConfig>
+  getRepoSyncMetadata: () => Promise<RepoSyncMetadataResponse>
   runWorkspaceScript: (input: RunWorkspaceScriptInput) => Promise<RunWorkspaceScriptResponse>
   deleteWorkspace: (input: DeleteWorkspaceInput) => Promise<DeleteWorkspaceResponse>
   runAgent: (input: RunAgentInput) => Promise<RunAgentResponse>

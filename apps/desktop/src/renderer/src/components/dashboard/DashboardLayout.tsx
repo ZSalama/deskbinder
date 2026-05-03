@@ -16,6 +16,7 @@ import { RunWorkspaceDialog } from './RunWorkspaceDialog'
 import { TranscriptPanel } from './TranscriptPanel'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import type { DashboardRepo, TranscriptItem } from './types'
+import { useRepoMetadataSync } from '../../hooks/useRepoMetadataSync'
 import { useWorkerHeartbeat } from '../../hooks/useWorkerHeartbeat'
 
 function getPathBasename(path: string): string {
@@ -123,6 +124,11 @@ export function DashboardLayout(): React.JSX.Element {
   const repos = useMemo(() => buildDashboardRepos(config), [config])
   const { error: workerHeartbeatError } = useWorkerHeartbeat({
     config,
+    enabled: isAuthenticated
+  })
+  const { error: repoMetadataSyncError } = useRepoMetadataSync({
+    config,
+    desktopApi,
     enabled: isAuthenticated
   })
 
@@ -656,6 +662,12 @@ export function DashboardLayout(): React.JSX.Element {
             {workerHeartbeatError ? (
               <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
                 {workerHeartbeatError}
+              </div>
+            ) : null}
+
+            {repoMetadataSyncError ? (
+              <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
+                {repoMetadataSyncError}
               </div>
             ) : null}
 

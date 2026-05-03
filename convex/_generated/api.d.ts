@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as repos from "../repos.js";
 import type * as workers from "../workers.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  repos: typeof repos;
   workers: typeof workers;
 }>;
 

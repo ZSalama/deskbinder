@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   createRepo: 'v1.config.createRepo',
   updateRepo: 'v1.config.updateRepo',
   updateAppSettings: 'v1.config.updateAppSettings',
+  getRepoSyncMetadata: 'v1.repo.syncMetadata.get',
   runWorkspaceScript: 'v1.workspace.runScript',
   deleteWorkspace: 'v1.workspace.delete',
   runAgent: 'v1.agent.run',

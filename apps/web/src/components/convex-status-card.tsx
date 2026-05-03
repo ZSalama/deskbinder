@@ -16,6 +16,17 @@ type DesktopWorkerSummary = {
   lastSeenAt: number | null
 }
 
+type DesktopRepoSummary = {
+  workerId: string
+  localRepoId: string
+  name: string
+  currentBranch: string
+  isValid: boolean
+  readinessStatus: 'ready' | 'invalid' | 'dirty' | 'missing_script' | 'missing_repo' | 'error'
+  readinessMessage: string | null
+  lastSeenAt: number
+}
+
 function formatLastSeen(lastSeenAt: number | null): string {
   if (!lastSeenAt) {
     return 'No heartbeat yet'
@@ -26,6 +37,23 @@ function formatLastSeen(lastSeenAt: number | null): string {
     minute: '2-digit',
     second: '2-digit'
   }).format(new Date(lastSeenAt))
+}
+
+function getReadinessLabel(status: DesktopRepoSummary['readinessStatus']): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready'
+    case 'dirty':
+      return 'Dirty'
+    case 'missing_script':
+      return 'Missing script'
+    case 'missing_repo':
+      return 'Missing repo'
+    case 'invalid':
+      return 'Invalid'
+    case 'error':
+      return 'Error'
+  }
 }
 
 function getWorkerDisplayStatus(worker: DesktopWorkerSummary, now: number): string {
@@ -61,6 +89,7 @@ function ConnectedStatus(): React.JSX.Element {
   const { isLoaded, isSignedIn } = useAuth()
   const viewer = useQuery(api.auth.viewer, isSignedIn ? {} : 'skip')
   const workers = useQuery(api.workers.listDesktopWorkers, isSignedIn ? {} : 'skip')
+  const repos = useQuery(api.repos.listDesktopRepos, isSignedIn ? {} : 'skip')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -139,6 +168,9 @@ function ConnectedStatus(): React.JSX.Element {
               <div className="mt-4 space-y-3">
                 {workers.map((worker) => {
                   const displayStatus = getWorkerDisplayStatus(worker, now)
+                  const workerRepos = (repos ?? []).filter(
+                    (repo) => repo.workerId === worker.workerId
+                  )
 
                   return (
                     <div
@@ -173,6 +205,48 @@ function ConnectedStatus(): React.JSX.Element {
                             {worker.autoRunEnabled ? 'Enabled' : 'Disabled'}
                           </p>
                         </div>
+                      </div>
+                      <div className="mt-4 border-t border-white/8 pt-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Repos</p>
+                        {!repos ? (
+                          <p className="mt-2 text-sm text-slate-300/80">Loading repos...</p>
+                        ) : workerRepos.length === 0 ? (
+                          <p className="mt-2 text-sm text-slate-300/80">
+                            No synced repositories yet.
+                          </p>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {workerRepos.map((repo) => (
+                              <div
+                                className="rounded-xl border border-white/8 bg-black/15 p-3"
+                                key={repo.localRepoId}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-medium text-white">{repo.name}</p>
+                                    <p className="mt-1 text-xs text-slate-400">
+                                      {repo.currentBranch || 'No current branch'}
+                                    </p>
+                                  </div>
+                                  <span
+                                    className={
+                                      repo.isValid
+                                        ? 'rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-100'
+                                        : 'rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100'
+                                    }
+                                  >
+                                    {getReadinessLabel(repo.readinessStatus)}
+                                  </span>
+                                </div>
+                                {repo.readinessMessage ? (
+                                  <p className="mt-2 text-xs leading-5 text-slate-300/80">
+                                    {repo.readinessMessage}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )

@@ -20,6 +20,30 @@ export type RepoSettings = {
   workspaceProcesses?: TrackedWorkspaceProcess[]
 }
 
+export type RepoReadinessStatus =
+  | 'ready'
+  | 'invalid'
+  | 'dirty'
+  | 'missing_script'
+  | 'missing_repo'
+  | 'error'
+
+export type RepoSyncMetadata = {
+  localRepoId: string
+  name: string
+  currentBranch: string
+  isValid: boolean
+  readinessStatus: RepoReadinessStatus
+  readinessMessage?: string
+  workerId: string
+  lastSeenAt: number
+}
+
+export type RepoSyncMetadataResponse = {
+  workerId: string
+  repos: RepoSyncMetadata[]
+}
+
 export type WorkspaceScriptResult = {
   ok: boolean
   agentRunnable: boolean

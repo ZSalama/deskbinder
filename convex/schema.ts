@@ -1,8 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
 
-const agentExecutable = v.union(v.literal('codex'), v.literal('claude'))
-
 const agentJobStatus = v.union(
   v.literal('queued'),
   v.literal('claimed'),
@@ -16,6 +14,15 @@ const agentJobStatus = v.union(
 )
 
 const workerStatus = v.union(v.literal('online'), v.literal('busy'), v.literal('offline'))
+
+const repoReadinessStatus = v.union(
+  v.literal('ready'),
+  v.literal('invalid'),
+  v.literal('dirty'),
+  v.literal('missing_script'),
+  v.literal('missing_repo'),
+  v.literal('error')
+)
 
 export default defineSchema({
   desktopWorkers: defineTable({
@@ -43,13 +50,20 @@ export default defineSchema({
     workerId: v.string(),
     localRepoId: v.string(),
     name: v.string(),
-    agentExecutable: v.optional(agentExecutable),
-    sourceRepoId: v.optional(v.string()),
-    workspaceBranchName: v.optional(v.string()),
-    deleted: v.optional(v.boolean()),
+    currentBranch: v.string(),
+    isValid: v.boolean(),
+    readinessStatus: repoReadinessStatus,
+    readinessMessage: v.optional(v.string()),
+    lastSeenAt: v.number(),
     createdAt: v.number(),
     updatedAt: v.number()
-  }).index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId']),
+  })
+    .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])
+    .index('by_ownerTokenIdentifier_and_workerId_and_localRepoId', [
+      'ownerTokenIdentifier',
+      'workerId',
+      'localRepoId'
+    ]),
 
   agentJobs: defineTable({
     ownerTokenIdentifier: v.string(),
