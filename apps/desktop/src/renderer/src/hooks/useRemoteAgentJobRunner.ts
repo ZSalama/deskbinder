@@ -12,6 +12,22 @@ type QueuedAgentJob = {
   promptText: string
 }
 
+type AnsweredHumanInputRequest = {
+  requestId: Id<'agentJobHumanInputRequests'>
+  jobId: Id<'agentJobs'>
+  targetRepoId: string
+  promptText: string
+  responseText: string
+  createdAt: number
+}
+
+type ClaimedRemoteJob = QueuedAgentJob & {
+  attemptId: Id<'agentJobAttempts'>
+  codexThreadId?: string
+  humanInputRequestId?: Id<'agentJobHumanInputRequests'>
+  humanInputResponseText?: string
+}
+
 type ActiveRemoteAgentJob = {
   jobId: Id<'agentJobs'>
   targetRepoId: string
@@ -24,7 +40,7 @@ type UseRemoteAgentJobRunnerOptions = {
   config: DeskbinderConfig | null
   desktopApi: DeskbinderApi | null
   enabled: boolean
-  onNotice: (notice: { tone: 'error' | 'success'; message: string }) => void
+  onNotice: (notice: { tone: 'error' | 'success' | 'warning'; message: string }) => void
 }
 
 type UseRemoteAgentJobRunnerResult = {
@@ -68,9 +84,15 @@ export function useRemoteAgentJobRunner({
     api.agentJobs.listQueuedAgentJobs,
     enabled && workerId ? { workerId } : 'skip'
   )
+  const answeredHumanInputRequests = useQuery(
+    api.agentJobs.listAnsweredHumanInputRequests,
+    enabled && workerId ? { workerId } : 'skip'
+  )
   const claimAgentJob = useMutation(api.agentJobs.claimAgentJob)
+  const claimAnsweredHumanInputRequest = useMutation(api.agentJobs.claimAnsweredHumanInputRequest)
   const markAgentJobRunning = useMutation(api.agentJobs.markAgentJobRunning)
   const completeAgentJob = useMutation(api.agentJobs.completeAgentJob)
+  const interruptAgentJob = useMutation(api.agentJobs.interruptAgentJob)
   const [activeJob, setActiveJob] = useState<ActiveRemoteAgentJob | null>(null)
   const [error, setError] = useState<string | null>(null)
   const runningJobIdRef = useRef<Id<'agentJobs'> | null>(null)
@@ -98,14 +120,15 @@ export function useRemoteAgentJobRunner({
       return
     }
 
+    const answeredRequest = answeredHumanInputRequests?.[0] as AnsweredHumanInputRequest | undefined
     const job = queuedJobs?.[0] as QueuedAgentJob | undefined
 
-    if (!job) {
+    if (!job && !answeredRequest) {
       return
     }
 
     let isActive = true
-    runningJobIdRef.current = job.jobId
+    runningJobIdRef.current = (answeredRequest?.jobId ?? job?.jobId) as Id<'agentJobs'>
 
     const waitForCompletion = async (runId: string): Promise<CompletedAgentEvent> => {
       const completedEvent = completedEventsRef.current.get(runId)
@@ -124,17 +147,20 @@ export function useRemoteAgentJobRunner({
     }
 
     const runJob = async (): Promise<void> => {
-      let claimedJob:
-        | (QueuedAgentJob & {
-            attemptId: Id<'agentJobAttempts'>
-          })
-        | null = null
+      let claimedJob: ClaimedRemoteJob | null = null
 
       try {
-        claimedJob = await claimAgentJob({
-          jobId: job.jobId,
-          workerId
-        })
+        if (answeredRequest) {
+          claimedJob = await claimAnsweredHumanInputRequest({
+            requestId: answeredRequest.requestId,
+            workerId
+          })
+        } else if (job) {
+          claimedJob = await claimAgentJob({
+            jobId: job.jobId,
+            workerId
+          })
+        }
 
         if (!claimedJob) {
           return
@@ -149,7 +175,8 @@ export function useRemoteAgentJobRunner({
 
         const response = await desktopApi.runAgent({
           repoId: claimedJob.targetRepoId,
-          promptText: claimedJob.promptText
+          promptText: claimedJob.humanInputResponseText ?? claimedJob.promptText,
+          resumeThreadId: claimedJob.codexThreadId
         })
 
         if (!response.ok) {
@@ -180,29 +207,53 @@ export function useRemoteAgentJobRunner({
 
         const completedEvent = await waitForCompletion(response.runId)
 
-        await completeAgentJob({
-          jobId: claimedJob.jobId,
-          attemptId: claimedJob.attemptId,
-          workerId,
-          status: completedEvent.status,
-          exitCode: completedEvent.exitCode,
-          signal: completedEvent.signal,
-          errorMessage: completedEvent.errorMessage,
-          resultSummary: completedEvent.lastMessage
-        })
+        if (completedEvent.status === 'interrupted') {
+          await interruptAgentJob({
+            jobId: claimedJob.jobId,
+            attemptId: claimedJob.attemptId,
+            workerId,
+            runId: completedEvent.runId,
+            codexThreadId: completedEvent.codexThreadId,
+            promptText:
+              completedEvent.humanInputPrompt ??
+              completedEvent.lastMessage ??
+              'Codex needs human input before it can continue.',
+            resultSummary: completedEvent.lastMessage
+          })
+        } else {
+          await completeAgentJob({
+            jobId: claimedJob.jobId,
+            attemptId: claimedJob.attemptId,
+            workerId,
+            status: completedEvent.status,
+            exitCode: completedEvent.exitCode,
+            signal: completedEvent.signal,
+            errorMessage: completedEvent.errorMessage,
+            resultSummary: completedEvent.lastMessage
+          })
+        }
 
         if (isActive) {
-          setError(completedEvent.status === 'succeeded' ? null : getFailureMessage(completedEvent))
+          setError(
+            completedEvent.status === 'succeeded' || completedEvent.status === 'interrupted'
+              ? null
+              : getFailureMessage(completedEvent)
+          )
           onNotice(
             completedEvent.status === 'succeeded'
               ? {
                   tone: 'success',
                   message: 'Remote Codex job completed.'
                 }
-              : {
-                  tone: 'error',
-                  message: getFailureMessage(completedEvent)
-                }
+              : completedEvent.status === 'interrupted'
+                ? {
+                    tone: 'warning',
+                    message: 'Remote Codex job is waiting for human input.'
+                  }
+                : {
+                    tone: 'error',
+                    message: getFailureMessage(completedEvent)
+                  }
           )
         }
       } catch (runError) {
@@ -245,9 +296,12 @@ export function useRemoteAgentJobRunner({
     }
   }, [
     claimAgentJob,
+    claimAnsweredHumanInputRequest,
     completeAgentJob,
     desktopApi,
     enabled,
+    answeredHumanInputRequests,
+    interruptAgentJob,
     markAgentJobRunning,
     onNotice,
     queuedJobs,

@@ -91,6 +91,12 @@ type RemoteAgentJobSummary = {
   status: RemoteAgentJobStatus
   branchName?: string
   runId?: string
+  codexThreadId?: string
+  pendingHumanInputRequest?: {
+    requestId: Id<'agentJobHumanInputRequests'>
+    promptText: string
+    createdAt: number
+  }
   createdAt: number
   updatedAt: number
   claimedAt?: number
@@ -172,7 +178,8 @@ function isActiveAgentJobStatus(status: RemoteAgentJobStatus): boolean {
     status === 'queued' ||
     status === 'claimed' ||
     status === 'setup_running' ||
-    status === 'agent_running'
+    status === 'agent_running' ||
+    status === 'interrupted'
   )
 }
 
@@ -209,6 +216,8 @@ function getAgentJobNotice(job: RemoteAgentJobSummary): string {
       return 'Desktop app is preparing the local environment.'
     case 'queued':
       return 'Agent job is queued for the desktop app.'
+    case 'interrupted':
+      return 'Agent is waiting for human input.'
     default:
       return ''
   }
@@ -477,6 +486,7 @@ function RemoteDashboard({
 }): React.JSX.Element {
   const createBranchRequest = useMutation(api.branchRequests.createBranchRequest)
   const createAgentJob = useMutation(api.agentJobs.createAgentJob)
+  const answerHumanInputRequest = useMutation(api.agentJobs.answerHumanInputRequest)
   const [repoForBranchRequest, setRepoForBranchRequest] = useState<DesktopRepoSummary | null>(null)
   const [isRequestingBranch, setIsRequestingBranch] = useState(false)
   const [draftPrompt, setDraftPrompt] = useState('')
@@ -578,6 +588,27 @@ function RemoteDashboard({
     }
   }
 
+  async function handleAnswerHumanInputRequest(
+    requestId: Id<'agentJobHumanInputRequests'>,
+    responseText: string
+  ): Promise<void> {
+    try {
+      await answerHumanInputRequest({
+        requestId,
+        responseText
+      })
+      setRemoteNotice({
+        tone: 'success',
+        message: 'Human input sent to the desktop app.'
+      })
+    } catch (error) {
+      setRemoteNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to send human input.'
+      })
+    }
+  }
+
   return (
     <>
       <section className="flex min-h-dvh w-full flex-col lg:h-dvh lg:min-w-[1024px] lg:overflow-hidden">
@@ -631,6 +662,9 @@ function RemoteDashboard({
                 <WorkspacePanel
                   agentJobs={agentJobs ?? []}
                   now={now}
+                  onAnswerHumanInputRequest={(requestId, responseText) =>
+                    void handleAnswerHumanInputRequest(requestId, responseText)
+                  }
                   repo={selectedRepo}
                   worker={selectedWorker}
                   workerStatus={selectedWorkerStatus ?? 'Offline'}
@@ -1097,12 +1131,17 @@ function WorkspaceHeader({
 function WorkspacePanel({
   agentJobs,
   now,
+  onAnswerHumanInputRequest,
   repo,
   worker,
   workerStatus
 }: {
   agentJobs: RemoteAgentJobSummary[]
   now: number
+  onAnswerHumanInputRequest: (
+    requestId: Id<'agentJobHumanInputRequests'>,
+    responseText: string
+  ) => void
   repo: DesktopRepoSummary
   worker: DesktopWorkerSummary
   workerStatus: DisplayWorkerStatus
@@ -1162,7 +1201,7 @@ function WorkspacePanel({
               </p>
             </div>
 
-            <AgentJobList jobs={agentJobs} />
+            <AgentJobList jobs={agentJobs} onAnswerHumanInputRequest={onAnswerHumanInputRequest} />
           </div>
 
           <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
@@ -1184,7 +1223,16 @@ function WorkspacePanel({
   )
 }
 
-function AgentJobList({ jobs }: { jobs: RemoteAgentJobSummary[] }): React.JSX.Element {
+function AgentJobList({
+  jobs,
+  onAnswerHumanInputRequest
+}: {
+  jobs: RemoteAgentJobSummary[]
+  onAnswerHumanInputRequest: (
+    requestId: Id<'agentJobHumanInputRequests'>,
+    responseText: string
+  ) => void
+}): React.JSX.Element {
   return (
     <section className="mt-5 rounded-lg border border-white/8 bg-white/[0.025]">
       <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
@@ -1200,7 +1248,11 @@ function AgentJobList({ jobs }: { jobs: RemoteAgentJobSummary[] }): React.JSX.El
       ) : (
         <div className="divide-y divide-white/8">
           {jobs.slice(0, 5).map((job) => (
-            <AgentJobRow key={job.jobId} job={job} />
+            <AgentJobRow
+              key={job.jobId}
+              job={job}
+              onAnswerHumanInputRequest={onAnswerHumanInputRequest}
+            />
           ))}
         </div>
       )}
@@ -1208,14 +1260,27 @@ function AgentJobList({ jobs }: { jobs: RemoteAgentJobSummary[] }): React.JSX.El
   )
 }
 
-function AgentJobRow({ job }: { job: RemoteAgentJobSummary }): React.JSX.Element {
+function AgentJobRow({
+  job,
+  onAnswerHumanInputRequest
+}: {
+  job: RemoteAgentJobSummary
+  onAnswerHumanInputRequest: (
+    requestId: Id<'agentJobHumanInputRequests'>,
+    responseText: string
+  ) => void
+}): React.JSX.Element {
   const isActive = isActiveAgentJobStatus(job.status)
   const isSuccess = job.status === 'agent_succeeded'
+  const [humanInputResponse, setHumanInputResponse] = useState('')
   const statusClassName = isSuccess
     ? 'text-emerald-300'
-    : isActive
+    : isActive && job.status !== 'interrupted'
       ? 'text-blue-300'
-      : 'text-rose-300'
+      : job.status === 'interrupted'
+        ? 'text-amber-300'
+        : 'text-rose-300'
+  const pendingRequest = job.pendingHumanInputRequest
 
   return (
     <article className="px-4 py-4">
@@ -1229,7 +1294,7 @@ function AgentJobRow({ job }: { job: RemoteAgentJobSummary }): React.JSX.Element
         </div>
 
         <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs ${statusClassName}`}>
-          {isActive ? (
+          {isActive && job.status !== 'interrupted' ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : isSuccess ? (
             <CheckCircle2 className="size-3.5" />
@@ -1248,6 +1313,45 @@ function AgentJobRow({ job }: { job: RemoteAgentJobSummary }): React.JSX.Element
         <p className="mt-3 rounded-md border border-rose-300/14 bg-rose-950/18 p-3 text-sm leading-6 text-rose-100/86">
           {job.errorMessage}
         </p>
+      ) : null}
+
+      {pendingRequest ? (
+        <form
+          className="mt-3 space-y-3 rounded-md border border-amber-300/14 bg-amber-950/16 p-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const responseText = humanInputResponse.trim()
+
+            if (responseText) {
+              onAnswerHumanInputRequest(pendingRequest.requestId, responseText)
+              setHumanInputResponse('')
+            }
+          }}
+        >
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.22em] text-amber-200/70">
+              Human Input Needed
+            </p>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-amber-50/88">
+              {pendingRequest.promptText}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <textarea
+              className="min-h-20 flex-1 resize-none rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-200/50"
+              onChange={(event) => setHumanInputResponse(event.target.value)}
+              placeholder="Reply to Codex..."
+              value={humanInputResponse}
+            />
+            <button
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-amber-300 px-4 text-sm font-medium text-slate-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-55"
+              disabled={!humanInputResponse.trim()}
+              type="submit"
+            >
+              Send Reply
+            </button>
+          </div>
+        </form>
       ) : null}
     </article>
   )

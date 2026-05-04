@@ -5,6 +5,8 @@ import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/s
 const PROMPT_MAX_CHARACTERS = 100_000
 const SUMMARY_MAX_CHARACTERS = 60_000
 const ERROR_MAX_CHARACTERS = 2_000
+const HUMAN_INPUT_MAX_CHARACTERS = 100_000
+const CODEX_THREAD_ID_MAX_CHARACTERS = 200
 const QUEUED_JOB_LIMIT = 5
 const RECENT_JOB_LIMIT = 20
 
@@ -12,7 +14,8 @@ const desktopCompletionStatusValidator = v.union(
   v.literal('succeeded'),
   v.literal('failed'),
   v.literal('cancelled'),
-  v.literal('timed_out')
+  v.literal('timed_out'),
+  v.literal('interrupted')
 )
 
 type AgentJobStatus =
@@ -26,7 +29,13 @@ type AgentJobStatus =
   | 'cancelled'
   | 'interrupted'
 
-type DesktopCompletionStatus = 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+type DesktopCompletionStatus = 'succeeded' | 'failed' | 'cancelled' | 'timed_out' | 'interrupted'
+
+type PendingHumanInputRequestSummary = {
+  requestId: Id<'agentJobHumanInputRequests'>
+  promptText: string
+  createdAt: number
+}
 
 type AgentJobSummary = {
   jobId: Id<'agentJobs'>
@@ -36,6 +45,8 @@ type AgentJobSummary = {
   status: AgentJobStatus
   branchName?: string
   runId?: string
+  codexThreadId?: string
+  pendingHumanInputRequest?: PendingHumanInputRequestSummary
   createdAt: number
   updatedAt: number
   claimedAt?: number
@@ -46,6 +57,18 @@ type AgentJobSummary = {
 
 type ClaimedAgentJob = AgentJobSummary & {
   attemptId: Id<'agentJobAttempts'>
+}
+
+type AnsweredHumanInputRequest = PendingHumanInputRequestSummary & {
+  jobId: Id<'agentJobs'>
+  targetRepoId: string
+  responseText: string
+}
+
+type ClaimedHumanInputRequestJob = ClaimedAgentJob & {
+  humanInputRequestId: Id<'agentJobHumanInputRequests'>
+  humanInputResponseText: string
+  codexThreadId: string
 }
 
 async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise<string> {
@@ -124,10 +147,36 @@ function toFinalAgentStatus(status: DesktopCompletionStatus): AgentJobStatus {
     case 'timed_out':
     case 'failed':
       return 'agent_failed'
+    case 'interrupted':
+      return 'interrupted'
   }
 }
 
-function toAgentJobSummary(job: Doc<'agentJobs'>): AgentJobSummary {
+async function getPendingHumanInputRequestSummary(
+  ctx: QueryCtx | MutationCtx,
+  job: Doc<'agentJobs'>
+): Promise<PendingHumanInputRequestSummary | undefined> {
+  if (!job.pendingHumanInputRequestId) {
+    return undefined
+  }
+
+  const request = await ctx.db.get(job.pendingHumanInputRequestId)
+
+  if (!request || request.status !== 'pending') {
+    return undefined
+  }
+
+  return {
+    requestId: request._id,
+    promptText: request.promptText,
+    createdAt: request.createdAt
+  }
+}
+
+async function toAgentJobSummary(
+  ctx: QueryCtx | MutationCtx,
+  job: Doc<'agentJobs'>
+): Promise<AgentJobSummary> {
   return {
     jobId: job._id,
     targetWorkerId: job.targetWorkerId,
@@ -136,6 +185,8 @@ function toAgentJobSummary(job: Doc<'agentJobs'>): AgentJobSummary {
     status: job.status,
     branchName: job.branchName,
     runId: job.runId,
+    codexThreadId: job.codexThreadId,
+    pendingHumanInputRequest: await getPendingHumanInputRequestSummary(ctx, job),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     claimedAt: job.claimedAt,
@@ -231,7 +282,7 @@ export const createAgentJob = mutation({
       throw new Error('Unable to create agent job.')
     }
 
-    return toAgentJobSummary(job)
+    return await toAgentJobSummary(ctx, job)
   }
 })
 
@@ -257,7 +308,7 @@ export const listQueuedAgentJobs = query({
       )
       .take(QUEUED_JOB_LIMIT)
 
-    return jobs.map(toAgentJobSummary)
+    return await Promise.all(jobs.map((job) => toAgentJobSummary(ctx, job)))
   }
 })
 
@@ -279,7 +330,7 @@ export const listRecentAgentJobs = query({
       .order('desc')
       .take(RECENT_JOB_LIMIT)
 
-    return jobs.map(toAgentJobSummary)
+    return await Promise.all(jobs.map((job) => toAgentJobSummary(ctx, job)))
   }
 })
 
@@ -318,7 +369,7 @@ export const claimAgentJob = mutation({
     }
 
     return {
-      ...toAgentJobSummary(claimedJob),
+      ...(await toAgentJobSummary(ctx, claimedJob)),
       attemptId
     }
   }
@@ -365,7 +416,7 @@ export const markAgentJobRunning = mutation({
       throw new Error('Agent job is unavailable.')
     }
 
-    return toAgentJobSummary(runningJob)
+    return await toAgentJobSummary(ctx, runningJob)
   }
 })
 
@@ -430,6 +481,241 @@ export const completeAgentJob = mutation({
       throw new Error('Agent job is unavailable.')
     }
 
-    return toAgentJobSummary(completedJob)
+    return await toAgentJobSummary(ctx, completedJob)
+  }
+})
+
+export const interruptAgentJob = mutation({
+  args: {
+    jobId: v.id('agentJobs'),
+    attemptId: v.id('agentJobAttempts'),
+    workerId: v.string(),
+    runId: v.string(),
+    codexThreadId: v.optional(v.string()),
+    promptText: v.string(),
+    resultSummary: v.optional(v.string())
+  },
+  handler: async (ctx, args): Promise<AgentJobSummary> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const job = await requireOwnedJob(ctx, ownerTokenIdentifier, args.jobId, args.workerId)
+    const attempt = await requireOwnedAttempt(
+      ctx,
+      ownerTokenIdentifier,
+      args.attemptId,
+      args.jobId,
+      args.workerId
+    )
+
+    if (job.status !== 'claimed' && job.status !== 'agent_running') {
+      throw new Error('Agent job is not active.')
+    }
+
+    if (attempt.status !== 'claimed' && attempt.status !== 'agent_running') {
+      throw new Error('Agent job attempt is not active.')
+    }
+
+    const now = Date.now()
+    const runId = sanitizeRequiredString(args.runId, 'Run id', 200)
+    const promptText = sanitizeRequiredString(
+      args.promptText,
+      'Human input prompt',
+      HUMAN_INPUT_MAX_CHARACTERS
+    )
+    const codexThreadId = sanitizeOptionalString(args.codexThreadId, CODEX_THREAD_ID_MAX_CHARACTERS)
+    const resultSummary = sanitizeOptionalString(args.resultSummary, SUMMARY_MAX_CHARACTERS)
+    const requestId = await ctx.db.insert('agentJobHumanInputRequests', {
+      ownerTokenIdentifier,
+      jobId: job._id,
+      attemptId: attempt._id,
+      workerId: args.workerId,
+      runId,
+      ...(codexThreadId ? { codexThreadId } : {}),
+      promptText,
+      status: 'pending',
+      createdAt: now
+    })
+
+    await ctx.db.patch(job._id, {
+      status: 'interrupted',
+      runId,
+      ...(codexThreadId ? { codexThreadId } : {}),
+      pendingHumanInputRequestId: requestId,
+      updatedAt: now,
+      ...(resultSummary ? { resultSummary } : {})
+    })
+    await ctx.db.patch(attempt._id, {
+      status: 'interrupted',
+      completedAt: now,
+      ...(resultSummary ? { resultSummary } : {})
+    })
+
+    const interruptedJob = await ctx.db.get(job._id)
+
+    if (!interruptedJob) {
+      throw new Error('Agent job is unavailable.')
+    }
+
+    return await toAgentJobSummary(ctx, interruptedJob)
+  }
+})
+
+export const answerHumanInputRequest = mutation({
+  args: {
+    requestId: v.id('agentJobHumanInputRequests'),
+    responseText: v.string()
+  },
+  handler: async (ctx, args): Promise<PendingHumanInputRequestSummary> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const request = await ctx.db.get(args.requestId)
+
+    if (!request || request.ownerTokenIdentifier !== ownerTokenIdentifier) {
+      throw new Error('Human input request is unavailable.')
+    }
+
+    if (request.status !== 'pending') {
+      throw new Error('Human input request has already been handled.')
+    }
+
+    const responseText = sanitizeRequiredString(
+      args.responseText,
+      'Response',
+      HUMAN_INPUT_MAX_CHARACTERS
+    )
+    const now = Date.now()
+
+    await ctx.db.patch(request._id, {
+      status: 'answered',
+      responseText,
+      answeredAt: now
+    })
+
+    return {
+      requestId: request._id,
+      promptText: request.promptText,
+      createdAt: request.createdAt
+    }
+  }
+})
+
+export const listAnsweredHumanInputRequests = query({
+  args: {
+    workerId: v.string()
+  },
+  handler: async (ctx, args): Promise<AnsweredHumanInputRequest[]> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const worker = await getDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
+
+    if (!worker) {
+      return []
+    }
+
+    const requests = await ctx.db
+      .query('agentJobHumanInputRequests')
+      .withIndex('by_ownerTokenIdentifier_and_status_and_workerId', (q) =>
+        q
+          .eq('ownerTokenIdentifier', ownerTokenIdentifier)
+          .eq('status', 'answered')
+          .eq('workerId', args.workerId)
+      )
+      .take(QUEUED_JOB_LIMIT)
+    const result: AnsweredHumanInputRequest[] = []
+
+    for (const request of requests) {
+      const job = await ctx.db.get(request.jobId)
+
+      if (
+        !job ||
+        job.ownerTokenIdentifier !== ownerTokenIdentifier ||
+        job.targetWorkerId !== args.workerId ||
+        job.status !== 'interrupted' ||
+        !request.responseText
+      ) {
+        continue
+      }
+
+      result.push({
+        requestId: request._id,
+        jobId: request.jobId,
+        targetRepoId: job.targetRepoId,
+        promptText: request.promptText,
+        responseText: request.responseText,
+        createdAt: request.createdAt
+      })
+    }
+
+    return result
+  }
+})
+
+export const claimAnsweredHumanInputRequest = mutation({
+  args: {
+    requestId: v.id('agentJobHumanInputRequests'),
+    workerId: v.string()
+  },
+  handler: async (ctx, args): Promise<ClaimedHumanInputRequestJob | null> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const request = await ctx.db.get(args.requestId)
+
+    if (
+      !request ||
+      request.ownerTokenIdentifier !== ownerTokenIdentifier ||
+      request.workerId !== args.workerId
+    ) {
+      throw new Error('Human input request is unavailable.')
+    }
+
+    if (request.status !== 'answered') {
+      return null
+    }
+
+    const job = await requireOwnedJob(ctx, ownerTokenIdentifier, request.jobId, args.workerId)
+
+    if (job.status !== 'interrupted') {
+      return null
+    }
+
+    const responseText = sanitizeRequiredString(
+      request.responseText ?? '',
+      'Response',
+      HUMAN_INPUT_MAX_CHARACTERS
+    )
+    const codexThreadId = sanitizeRequiredString(
+      request.codexThreadId ?? job.codexThreadId ?? '',
+      'Codex thread id',
+      CODEX_THREAD_ID_MAX_CHARACTERS
+    )
+    const now = Date.now()
+    const attemptId = await ctx.db.insert('agentJobAttempts', {
+      ownerTokenIdentifier,
+      jobId: job._id,
+      workerId: args.workerId,
+      status: 'claimed',
+      startedAt: now
+    })
+
+    await ctx.db.patch(request._id, {
+      status: 'claimed',
+      claimedAt: now
+    })
+    await ctx.db.patch(job._id, {
+      status: 'claimed',
+      claimedAt: now,
+      updatedAt: now,
+      pendingHumanInputRequestId: undefined
+    })
+
+    const claimedJob = await ctx.db.get(job._id)
+
+    if (!claimedJob) {
+      throw new Error('Agent job is unavailable.')
+    }
+
+    return {
+      ...(await toAgentJobSummary(ctx, claimedJob)),
+      attemptId,
+      humanInputRequestId: request._id,
+      humanInputResponseText: responseText,
+      codexThreadId
+    }
   }
 })

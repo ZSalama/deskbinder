@@ -45,7 +45,9 @@ function AgentMessage({ item }: { item: TranscriptItem }): React.JSX.Element {
       ? 'text-rose-300'
       : item.status === 'succeeded'
         ? 'text-emerald-300'
-        : 'text-blue-300'
+        : item.status === 'interrupted'
+          ? 'text-amber-300'
+          : 'text-blue-300'
 
   return (
     <article className="flex justify-start">
@@ -93,5 +95,7 @@ function getStatusLabel(status: NonNullable<TranscriptItem['status']>): string {
       return 'Cancelled'
     case 'timed_out':
       return 'Timed out'
+    case 'interrupted':
+      return 'Waiting for input'
   }
 }

@@ -31,6 +31,13 @@ const branchRequestStatus = v.union(
   v.literal('failed')
 )
 
+const humanInputRequestStatus = v.union(
+  v.literal('pending'),
+  v.literal('answered'),
+  v.literal('claimed'),
+  v.literal('cancelled')
+)
+
 export default defineSchema({
   desktopWorkers: defineTable({
     ownerTokenIdentifier: v.string(),
@@ -100,6 +107,8 @@ export default defineSchema({
     status: agentJobStatus,
     branchName: v.optional(v.string()),
     runId: v.optional(v.string()),
+    codexThreadId: v.optional(v.string()),
+    pendingHumanInputRequestId: v.optional(v.id('agentJobHumanInputRequests')),
     createdAt: v.number(),
     updatedAt: v.number(),
     claimedAt: v.optional(v.number()),
@@ -130,5 +139,27 @@ export default defineSchema({
     signal: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
     resultSummary: v.optional(v.string())
-  }).index('by_jobId', ['jobId'])
+  }).index('by_jobId', ['jobId']),
+
+  agentJobHumanInputRequests: defineTable({
+    ownerTokenIdentifier: v.string(),
+    jobId: v.id('agentJobs'),
+    attemptId: v.id('agentJobAttempts'),
+    workerId: v.string(),
+    runId: v.string(),
+    codexThreadId: v.optional(v.string()),
+    promptText: v.string(),
+    status: humanInputRequestStatus,
+    responseText: v.optional(v.string()),
+    createdAt: v.number(),
+    answeredAt: v.optional(v.number()),
+    claimedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number())
+  })
+    .index('by_ownerTokenIdentifier_and_status_and_workerId', [
+      'ownerTokenIdentifier',
+      'status',
+      'workerId'
+    ])
+    .index('by_jobId', ['jobId'])
 })

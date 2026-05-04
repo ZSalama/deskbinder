@@ -122,11 +122,18 @@ export type DeleteWorkspaceInput = {
   repoId: string
 }
 
-export type AgentRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+export type AgentRunStatus =
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'timed_out'
+  | 'interrupted'
 
 export type RunAgentInput = {
   repoId: string
   promptText: string
+  resumeThreadId?: string
 }
 
 export type RunAgentResponse =
@@ -135,6 +142,7 @@ export type RunAgentResponse =
       runId: string
       repoId: string
       status: 'running'
+      codexThreadId?: string
     }
   | {
       ok: false
@@ -174,6 +182,8 @@ export type AgentRunEvent =
       signal?: string
       errorMessage?: string
       lastMessage?: string
+      codexThreadId?: string
+      humanInputPrompt?: string
       completedAt: number
       stdoutTruncated: boolean
       stderrTruncated: boolean

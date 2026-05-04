@@ -1,4 +1,6 @@
 import { useUser } from '@clerk/react'
+import { api } from '@deskbinder/convex-client'
+import type { Id } from '@deskbinder/convex-client'
 import type {
   AgentRunEvent,
   DeskbinderConfig,
@@ -6,7 +8,7 @@ import type {
   UpdateRepoInput
 } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
-import { useConvexAuth } from 'convex/react'
+import { useConvexAuth, useMutation, useQuery } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RepoSettingsDialog } from './RepoSettingsDialog'
 import { RepoSidebar } from './RepoSidebar'
@@ -53,13 +55,15 @@ function getAgentCompletionNotice(event: Extract<AgentRunEvent, { type: 'complet
       return 'Codex run cancelled.'
     case 'timed_out':
       return 'Codex timed out.'
+    case 'interrupted':
+      return 'Codex is waiting for human input.'
     case 'succeeded':
       return 'Codex run completed.'
   }
 }
 
 type RepoSetupNotice = {
-  tone: 'error' | 'success'
+  tone: 'error' | 'success' | 'warning'
   message: string
 }
 
@@ -68,7 +72,26 @@ type ActiveAgentRun = {
   runId: string
 }
 
+type InterruptedAgentRun = {
+  codexThreadId: string
+  promptText: string
+  runId: string
+}
+
 type TranscriptsByRepoId = Record<string, TranscriptItem[]>
+type InterruptedRunsByRepoId = Record<string, InterruptedAgentRun | undefined>
+
+type RemoteHumanInputRequest = {
+  requestId: Id<'agentJobHumanInputRequests'>
+  promptText: string
+  createdAt: number
+}
+
+type RemoteAgentJobSummary = {
+  jobId: Id<'agentJobs'>
+  status: string
+  pendingHumanInputRequest?: RemoteHumanInputRequest
+}
 
 type DesktopApiState = {
   api: DeskbinderApi | null
@@ -122,8 +145,20 @@ export function DashboardLayout(): React.JSX.Element {
   const [repoSetupNotice, setRepoSetupNotice] = useState<RepoSetupNotice | null>(null)
   const [transcriptsByRepoId, setTranscriptsByRepoId] = useState<TranscriptsByRepoId>({})
   const [activeAgentRun, setActiveAgentRun] = useState<ActiveAgentRun | null>(null)
+  const [interruptedRunsByRepoId, setInterruptedRunsByRepoId] = useState<InterruptedRunsByRepoId>(
+    {}
+  )
+  const [remoteHumanInputDraft, setRemoteHumanInputDraft] = useState('')
   const runRepoIdByRunId = useRef(new Map<string, string>())
   const repos = useMemo(() => buildDashboardRepos(config), [config])
+  const resolvedSelectedRepoId =
+    selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
+      ? selectedRepoId
+      : (repos[0]?.id ?? null)
+  const activeRepo = useMemo(
+    () => repos.find((repo) => repo.id === resolvedSelectedRepoId) ?? null,
+    [repos, resolvedSelectedRepoId]
+  )
   const { error: workerHeartbeatError } = useWorkerHeartbeat({
     config,
     enabled: isAuthenticated,
@@ -152,6 +187,16 @@ export function DashboardLayout(): React.JSX.Element {
     enabled: isAuthenticated,
     onNotice: handleRemoteBranchNotice
   })
+  const remoteAgentJobs = useQuery(
+    api.agentJobs.listRecentAgentJobs,
+    isAuthenticated && config?.workerId && activeRepo
+      ? {
+          targetWorkerId: config.workerId,
+          targetRepoId: activeRepo.id
+        }
+      : 'skip'
+  ) as RemoteAgentJobSummary[] | undefined
+  const answerHumanInputRequest = useMutation(api.agentJobs.answerHumanInputRequest)
 
   useEffect(() => {
     if (!desktopApi) {
@@ -322,6 +367,32 @@ export function DashboardLayout(): React.JSX.Element {
       )
       runRepoIdByRunId.current.delete(completedEvent.runId)
 
+      if (completedEvent.status === 'interrupted' && completedEvent.codexThreadId) {
+        setInterruptedRunsByRepoId((currentRuns) => ({
+          ...currentRuns,
+          [repoId]: {
+            codexThreadId: completedEvent.codexThreadId!,
+            promptText:
+              completedEvent.humanInputPrompt ??
+              completedEvent.lastMessage ??
+              'Codex needs human input before it can continue.',
+            runId: completedEvent.runId
+          }
+        }))
+        setRepoSetupNotice({
+          tone: 'warning',
+          message: 'Codex is waiting for human input.'
+        })
+        return
+      }
+
+      if (completedEvent.status === 'succeeded') {
+        setInterruptedRunsByRepoId((currentRuns) => ({
+          ...currentRuns,
+          [repoId]: undefined
+        }))
+      }
+
       if (completedEvent.status !== 'succeeded') {
         setRepoSetupNotice({
           tone: 'error',
@@ -330,18 +401,13 @@ export function DashboardLayout(): React.JSX.Element {
       }
     })
   }, [desktopApi])
-  const resolvedSelectedRepoId =
-    selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
-      ? selectedRepoId
-      : (repos[0]?.id ?? null)
-
-  const activeRepo = useMemo(
-    () => repos.find((repo) => repo.id === resolvedSelectedRepoId) ?? null,
-    [repos, resolvedSelectedRepoId]
-  )
 
   const transcript = activeRepo ? (transcriptsByRepoId[activeRepo.id] ?? []) : []
   const activeRepoHasAgentRun = !!activeRepo && activeAgentRun?.repoId === activeRepo.id
+  const interruptedRun = activeRepo ? interruptedRunsByRepoId[activeRepo.id] : undefined
+  const remoteHumanInputRequest = remoteAgentJobs?.find(
+    (job) => job.status === 'interrupted' && job.pendingHumanInputRequest
+  )?.pendingHumanInputRequest
 
   async function handlePickFolder(): Promise<void> {
     let api: DeskbinderApi
@@ -539,7 +605,8 @@ export function DashboardLayout(): React.JSX.Element {
     try {
       const response = await getDesktopApi().runAgent({
         repoId: targetRepo.id,
-        promptText
+        promptText,
+        resumeThreadId: interruptedRun?.codexThreadId
       })
 
       if (!response.ok) {
@@ -576,6 +643,10 @@ export function DashboardLayout(): React.JSX.Element {
         }
       })
       setDraftPrompt('')
+      setInterruptedRunsByRepoId((currentRuns) => ({
+        ...currentRuns,
+        [targetRepo.id]: undefined
+      }))
       setBridgeError(null)
     } catch (error) {
       setRepoSetupNotice({
@@ -607,6 +678,32 @@ export function DashboardLayout(): React.JSX.Element {
       setRepoSetupNotice({
         tone: 'error',
         message: error instanceof Error ? error.message : 'Unable to cancel Codex.'
+      })
+    }
+  }
+
+  async function handleRemoteHumanInputSubmit(): Promise<void> {
+    const request = remoteHumanInputRequest
+    const responseText = remoteHumanInputDraft.trim()
+
+    if (!request || !responseText) {
+      return
+    }
+
+    try {
+      await answerHumanInputRequest({
+        requestId: request.requestId,
+        responseText
+      })
+      setRemoteHumanInputDraft('')
+      setRepoSetupNotice({
+        tone: 'success',
+        message: 'Human input sent to the remote Codex job.'
+      })
+    } catch (error) {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to send human input.'
       })
     }
   }
@@ -673,7 +770,9 @@ export function DashboardLayout(): React.JSX.Element {
                 className={
                   repoSetupNotice.tone === 'error'
                     ? 'border-b border-rose-300/12 bg-rose-300/7 px-6 py-3 text-sm text-rose-50'
-                    : 'border-b border-emerald-300/12 bg-emerald-300/7 px-6 py-3 text-sm text-emerald-50'
+                    : repoSetupNotice.tone === 'warning'
+                      ? 'border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50'
+                      : 'border-b border-emerald-300/12 bg-emerald-300/7 px-6 py-3 text-sm text-emerald-50'
                 }
               >
                 {repoSetupNotice.message}
@@ -717,6 +816,42 @@ export function DashboardLayout(): React.JSX.Element {
             ) : null}
 
             {activeRepo ? <TranscriptPanel items={transcript} /> : <EmptyWorkspaceState />}
+
+            {remoteHumanInputRequest ? (
+              <form
+                className="border-t border-amber-300/12 bg-amber-300/7 px-6 py-4 text-sm text-amber-50"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleRemoteHumanInputSubmit()
+                }}
+              >
+                <p className="font-medium">Remote Codex needs input.</p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-amber-50/86">
+                  {remoteHumanInputRequest.promptText}
+                </p>
+                <div className="mt-3 flex items-end gap-2">
+                  <textarea
+                    className="min-h-18 flex-1 resize-none rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-200/50"
+                    onChange={(event) => setRemoteHumanInputDraft(event.target.value)}
+                    placeholder="Reply to Codex..."
+                    value={remoteHumanInputDraft}
+                  />
+                  <button
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-amber-300 px-4 text-sm font-medium text-slate-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-55"
+                    disabled={!remoteHumanInputDraft.trim()}
+                    type="submit"
+                  >
+                    Send Reply
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {interruptedRun ? (
+              <div className="border-t border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
+                Codex asked for input: {interruptedRun.promptText}
+              </div>
+            ) : null}
 
             <PromptComposer
               disabled={

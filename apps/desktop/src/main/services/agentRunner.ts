@@ -41,7 +41,11 @@ type StreamState = {
 type ActiveAgentRun = {
   child: AgentChildProcess
   completed: Promise<void>
+  codexThreadId?: string
   finish: (details: FinishDetails) => void
+  hasAgentMessageDelta: boolean
+  humanInputPrompt?: string
+  jsonStdoutBuffer: string
   lastMessagePath: string
   repoId: string
   runId: string
@@ -66,6 +70,7 @@ type ValidatedRunInput = {
   branchName: string
   promptText: string
   repo: RepoSettings
+  resumeThreadId?: string
   workspacePath: string
 }
 
@@ -192,6 +197,140 @@ function sanitizePathSegment(value: string): string {
   return segment || 'unknown'
 }
 
+function getRecordString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function getNestedRecord(record: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = record[key]
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function getCodexJsonItem(record: Record<string, unknown>): Record<string, unknown> {
+  return getNestedRecord(record, 'item')
+}
+
+function getCodexJsonType(record: Record<string, unknown>): string {
+  return getRecordString(record, 'type') ?? ''
+}
+
+function findCodexThreadId(record: Record<string, unknown>): string | undefined {
+  return (
+    getRecordString(record, 'thread_id') ??
+    getRecordString(record, 'threadId') ??
+    getRecordString(record, 'session_id') ??
+    getRecordString(record, 'sessionId') ??
+    getRecordString(getNestedRecord(record, 'payload'), 'thread_id') ??
+    getRecordString(getNestedRecord(record, 'payload'), 'session_id')
+  )
+}
+
+function findHumanInputPrompt(record: Record<string, unknown>): string | undefined {
+  const type = getCodexJsonType(record).toLowerCase()
+  const item = getCodexJsonItem(record)
+  const itemType = getRecordString(item, 'type')
+  const itemText = getRecordString(item, 'text')
+
+  if (itemType === 'agent_message' && looksLikeHumanInputPrompt(itemText)) {
+    return itemText
+  }
+
+  if (
+    !type.includes('interrupt') &&
+    !type.includes('human') &&
+    !(type.includes('input') && type.includes('request')) &&
+    !type.includes('approval')
+  ) {
+    return undefined
+  }
+
+  const payload = getNestedRecord(record, 'payload')
+
+  return (
+    getRecordString(record, 'prompt') ??
+    getRecordString(record, 'message') ??
+    getRecordString(record, 'reason') ??
+    getRecordString(record, 'description') ??
+    getRecordString(payload, 'prompt') ??
+    getRecordString(payload, 'message') ??
+    getRecordString(payload, 'reason') ??
+    getRecordString(payload, 'description')
+  )
+}
+
+function findAgentTextDelta(
+  record: Record<string, unknown>,
+  hasAgentMessageDelta: boolean
+): string | undefined {
+  const type = getCodexJsonType(record)
+  const payload = getNestedRecord(record, 'payload')
+  const item = getCodexJsonItem(record)
+
+  if (getRecordString(item, 'type') === 'agent_message' && !hasAgentMessageDelta) {
+    return getRecordString(item, 'text')
+  }
+
+  if (!type.includes('agent_message')) {
+    return undefined
+  }
+
+  if (!type.includes('delta') && hasAgentMessageDelta) {
+    return undefined
+  }
+
+  return (
+    getRecordString(record, 'delta') ??
+    getRecordString(record, 'message') ??
+    getRecordString(record, 'text') ??
+    getRecordString(payload, 'delta') ??
+    getRecordString(payload, 'message') ??
+    getRecordString(payload, 'text')
+  )
+}
+
+function looksLikeHumanInputPrompt(value: string | undefined): boolean {
+  if (!value) {
+    return false
+  }
+
+  const normalizedValue = value.toLowerCase()
+  const markers = [
+    'need your input',
+    'human-in-the-loop',
+    'please provide',
+    'please confirm',
+    'can you confirm',
+    'which option',
+    'option a or option b',
+    'should i continue',
+    'choose one',
+    'blocked until',
+    'waiting for your',
+    'i need you to'
+  ]
+
+  return markers.some((marker) => normalizedValue.includes(marker))
+}
+
+function buildCodexArgs(input: ValidatedRunInput, lastMessagePath: string): string[] {
+  if (input.resumeThreadId) {
+    return [
+      'exec',
+      'resume',
+      '--json',
+      '-o',
+      lastMessagePath,
+      input.resumeThreadId,
+      input.promptText
+    ]
+  }
+
+  return ['exec', '--json', '-o', lastMessagePath, input.promptText]
+}
+
 function formatRunTimestamp(timestamp: number): string {
   return new Date(timestamp).toISOString().replace(/[:.]/g, '-')
 }
@@ -300,7 +439,7 @@ export class AgentRunner {
       stderr.stream.on('error', () => {})
       child = spawn(
         validatedInput.repo.agentExecutable ?? 'codex',
-        ['exec', validatedInput.promptText, '-o', logPaths.lastMessagePath],
+        buildCodexArgs(validatedInput, logPaths.lastMessagePath),
         {
           cwd: validatedInput.workspacePath,
           shell: false,
@@ -340,6 +479,7 @@ export class AgentRunner {
     const activeRun: ActiveAgentRun = {
       child,
       completed,
+      codexThreadId: validatedInput.resumeThreadId,
       finish: (details) => {
         if (settled) {
           return
@@ -352,6 +492,8 @@ export class AgentRunner {
           resolveCompleted()
         })
       },
+      hasAgentMessageDelta: false,
+      jsonStdoutBuffer: '',
       lastMessagePath: logPaths.lastMessagePath,
       repoId: validatedInput.repo.id,
       runId,
@@ -400,7 +542,8 @@ export class AgentRunner {
       ok: true,
       runId,
       repoId: validatedInput.repo.id,
-      status: 'running'
+      status: 'running',
+      codexThreadId: activeRun.codexThreadId
     }
   }
 
@@ -469,6 +612,7 @@ export class AgentRunner {
     const record = input as Partial<RunAgentInput>
     const repoId = sanitizeString(record.repoId)
     const promptText = sanitizeString(record.promptText)
+    const resumeThreadId = sanitizeString(record.resumeThreadId)
 
     if (!repoId) {
       throw new Error('Repo selection is required.')
@@ -499,6 +643,7 @@ export class AgentRunner {
       branchName: repo.workspaceBranchName ?? (await getCurrentBranchName(workspacePath)),
       promptText,
       repo,
+      resumeThreadId: resumeThreadId ?? undefined,
       workspacePath
     }
   }
@@ -532,6 +677,12 @@ export class AgentRunner {
 
     streamState.bytes += chunkBytes
     streamState.stream.write(chunk)
+
+    if (streamName === 'stdout') {
+      this.handleCodexJsonOutput(activeRun, chunk)
+      return
+    }
+
     activeRun.sequence += 1
     sendAgentEvent(activeRun.webContents, {
       type: streamName,
@@ -541,14 +692,86 @@ export class AgentRunner {
     })
   }
 
+  private handleCodexJsonOutput(activeRun: ActiveAgentRun, chunk: string): void {
+    activeRun.jsonStdoutBuffer += chunk
+    const lines = activeRun.jsonStdoutBuffer.split(/\r?\n/)
+    activeRun.jsonStdoutBuffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      const trimmedLine = line.trim()
+
+      if (!trimmedLine) {
+        continue
+      }
+
+      let event: unknown
+
+      try {
+        event = JSON.parse(trimmedLine)
+      } catch {
+        activeRun.sequence += 1
+        sendAgentEvent(activeRun.webContents, {
+          type: 'stdout',
+          runId: activeRun.runId,
+          chunk: line,
+          sequence: activeRun.sequence
+        })
+        continue
+      }
+
+      if (!event || typeof event !== 'object' || Array.isArray(event)) {
+        continue
+      }
+
+      const record = event as Record<string, unknown>
+      const codexThreadId = findCodexThreadId(record)
+
+      if (codexThreadId) {
+        activeRun.codexThreadId = codexThreadId
+      }
+
+      const humanInputPrompt = findHumanInputPrompt(record)
+
+      if (humanInputPrompt) {
+        activeRun.humanInputPrompt = humanInputPrompt
+      }
+
+      const type = getCodexJsonType(record)
+      const agentTextDelta = findAgentTextDelta(record, activeRun.hasAgentMessageDelta)
+
+      if (!agentTextDelta) {
+        continue
+      }
+
+      if (type.includes('delta')) {
+        activeRun.hasAgentMessageDelta = true
+      }
+
+      activeRun.sequence += 1
+      sendAgentEvent(activeRun.webContents, {
+        type: 'stdout',
+        runId: activeRun.runId,
+        chunk: agentTextDelta,
+        sequence: activeRun.sequence
+      })
+    }
+  }
+
   private async finishRun(activeRun: ActiveAgentRun, details: FinishDetails): Promise<void> {
     await Promise.all([
       writeStreamEnd(activeRun.stdout.stream),
       writeStreamEnd(activeRun.stderr.stream)
     ])
 
-    const status = getCompletionStatus(details, activeRun.requestedStatus)
+    const initialStatus = getCompletionStatus(details, activeRun.requestedStatus)
     const lastMessage = await readLastMessage(activeRun.lastMessagePath)
+    const humanInputPrompt =
+      activeRun.humanInputPrompt ??
+      (looksLikeHumanInputPrompt(lastMessage) ? lastMessage : undefined)
+    const status =
+      humanInputPrompt && initialStatus !== 'cancelled' && initialStatus !== 'timed_out'
+        ? 'interrupted'
+        : initialStatus
     const errorMessage =
       details.errorMessage ??
       (status === 'failed' ? `Codex exited with code ${details.exitCode ?? 'unknown'}.` : undefined)
@@ -562,6 +785,8 @@ export class AgentRunner {
       signal: details.signal ?? undefined,
       errorMessage,
       lastMessage,
+      codexThreadId: activeRun.codexThreadId,
+      humanInputPrompt,
       completedAt: Date.now(),
       stdoutTruncated: activeRun.stdout.truncated,
       stderrTruncated: activeRun.stderr.truncated

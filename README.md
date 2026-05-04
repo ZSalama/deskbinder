@@ -42,3 +42,11 @@ Both apps use the same Clerk and Convex deployment, but each framework needs its
 - improve codex log display in desktop app
 - remove unused ui components
 - human-in-the-loop
+
+## HITL prompt
+
+Create a file named HITL_TEST.md.
+
+Then stop and ask the user: “Should I continue with option A or option B?”
+
+Do not proceed until the user answers.

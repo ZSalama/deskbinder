@@ -11,7 +11,7 @@ export type TranscriptItem = {
   role: 'user' | 'assistant'
   body: string
   stderrBody?: string
-  status?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+  status?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out' | 'interrupted'
   completedAtLabel?: string
   durationLabel?: string
   timestampLabel?: string
