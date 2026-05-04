@@ -34,3 +34,11 @@ Both apps use the same Clerk and Convex deployment, but each framework needs its
 - Desktop app: `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_CONVEX_URL`
 - Web app: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_CONVEX_URL`
 - Shared auth config: `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER_DOMAIN`
+
+## Features/work in progress
+
+- remove notification cards on the top of transcription section
+- set busy to be per branch
+- improve codex log display in desktop app
+- remove unused ui components
+- human-in-the-loop
