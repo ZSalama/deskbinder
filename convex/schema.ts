@@ -99,26 +99,36 @@ export default defineSchema({
     promptText: v.string(),
     status: agentJobStatus,
     branchName: v.optional(v.string()),
+    runId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
     claimedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
-    errorMessage: v.optional(v.string())
-  }).index('by_ownerTokenIdentifier_and_status_and_targetWorkerId', [
-    'ownerTokenIdentifier',
-    'status',
-    'targetWorkerId'
-  ]),
+    errorMessage: v.optional(v.string()),
+    resultSummary: v.optional(v.string())
+  })
+    .index('by_ownerTokenIdentifier_and_status_and_targetWorkerId', [
+      'ownerTokenIdentifier',
+      'status',
+      'targetWorkerId'
+    ])
+    .index('by_ownerTokenIdentifier_and_targetWorkerId_and_targetRepoId', [
+      'ownerTokenIdentifier',
+      'targetWorkerId',
+      'targetRepoId'
+    ]),
 
   agentJobAttempts: defineTable({
     ownerTokenIdentifier: v.string(),
     jobId: v.id('agentJobs'),
     workerId: v.string(),
     status: agentJobStatus,
+    runId: v.optional(v.string()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     exitCode: v.optional(v.number()),
     signal: v.optional(v.string()),
-    errorMessage: v.optional(v.string())
+    errorMessage: v.optional(v.string()),
+    resultSummary: v.optional(v.string())
   }).index('by_jobId', ['jobId'])
 })

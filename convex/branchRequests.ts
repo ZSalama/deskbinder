@@ -63,7 +63,13 @@ function sanitizeBranchName(branchName: string): string {
     throw new Error('Branch name is required.')
   }
 
-  if (/[\u0000-\u001f\u007f]/.test(trimmedBranchName)) {
+  if (
+    Array.from(trimmedBranchName).some((character) => {
+      const codePoint = character.codePointAt(0)
+
+      return codePoint !== undefined && (codePoint <= 31 || codePoint === 127)
+    })
+  ) {
     throw new Error('Branch name contains unsupported characters.')
   }
 

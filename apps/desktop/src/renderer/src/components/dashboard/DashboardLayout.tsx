@@ -19,6 +19,7 @@ import type { DashboardRepo, TranscriptItem } from './types'
 import { useRepoMetadataSync } from '../../hooks/useRepoMetadataSync'
 import { useWorkerHeartbeat } from '../../hooks/useWorkerHeartbeat'
 import { useBranchRequestRunner } from '../../hooks/useBranchRequestRunner'
+import { useRemoteAgentJobRunner } from '../../hooks/useRemoteAgentJobRunner'
 
 function getPathBasename(path: string): string {
   const normalizedPath = path.replace(/\/+$/, '')
@@ -125,7 +126,8 @@ export function DashboardLayout(): React.JSX.Element {
   const repos = useMemo(() => buildDashboardRepos(config), [config])
   const { error: workerHeartbeatError } = useWorkerHeartbeat({
     config,
-    enabled: isAuthenticated
+    enabled: isAuthenticated,
+    status: activeAgentRun ? 'busy' : 'online'
   })
   const { error: repoMetadataSyncError } = useRepoMetadataSync({
     config,
@@ -144,6 +146,12 @@ export function DashboardLayout(): React.JSX.Element {
       onNotice: handleRemoteBranchNotice,
       onSelectedRepoId: setSelectedRepoId
     })
+  const { activeJob: remoteAgentJob, error: remoteAgentJobRunnerError } = useRemoteAgentJobRunner({
+    config,
+    desktopApi,
+    enabled: isAuthenticated,
+    onNotice: handleRemoteBranchNotice
+  })
 
   useEffect(() => {
     if (!desktopApi) {
@@ -693,6 +701,18 @@ export function DashboardLayout(): React.JSX.Element {
             {branchRequestRunnerError ? (
               <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
                 {branchRequestRunnerError}
+              </div>
+            ) : null}
+
+            {remoteAgentJob ? (
+              <div className="border-b border-blue-300/12 bg-blue-300/7 px-6 py-3 text-sm text-blue-50">
+                Running remote agent job for repo {remoteAgentJob.targetRepoId.slice(0, 8)}.
+              </div>
+            ) : null}
+
+            {remoteAgentJobRunnerError ? (
+              <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
+                {remoteAgentJobRunnerError}
               </div>
             ) : null}
 

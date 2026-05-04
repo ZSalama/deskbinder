@@ -9,15 +9,18 @@ import {
   useAuth
 } from '@clerk/nextjs'
 import { api } from '@deskbinder/convex-client'
+import type { Id } from '@deskbinder/convex-client'
 import { useMutation, useQuery } from 'convex/react'
 import {
   AlertTriangle,
   Bot,
   ChevronDown,
+  CheckCircle2,
   Clock3,
   Copy,
   Folder,
   GitBranch,
+  Loader2,
   LogOut,
   Monitor,
   Paperclip,
@@ -67,6 +70,33 @@ type RepoGroup = {
 type RemoteNotice = {
   tone: 'error' | 'success' | 'warning'
   message: string
+}
+
+type RemoteAgentJobStatus =
+  | 'queued'
+  | 'claimed'
+  | 'setup_running'
+  | 'setup_failed'
+  | 'agent_running'
+  | 'agent_failed'
+  | 'agent_succeeded'
+  | 'cancelled'
+  | 'interrupted'
+
+type RemoteAgentJobSummary = {
+  jobId: Id<'agentJobs'>
+  targetWorkerId: string
+  targetRepoId: string
+  promptText: string
+  status: RemoteAgentJobStatus
+  branchName?: string
+  runId?: string
+  createdAt: number
+  updatedAt: number
+  claimedAt?: number
+  completedAt?: number
+  errorMessage?: string
+  resultSummary?: string
 }
 
 function joinClassNames(...classNames: Array<string | false | null | undefined>): string {
@@ -135,6 +165,53 @@ function getBranchLabel(repo: DesktopRepoSummary): string {
   return (
     repo.workspaceBranchName || (repo.sourceLocalRepoId ? repo.name : repo.currentBranch || 'main')
   )
+}
+
+function isActiveAgentJobStatus(status: RemoteAgentJobStatus): boolean {
+  return (
+    status === 'queued' ||
+    status === 'claimed' ||
+    status === 'setup_running' ||
+    status === 'agent_running'
+  )
+}
+
+function getAgentJobStatusLabel(status: RemoteAgentJobStatus): string {
+  switch (status) {
+    case 'queued':
+      return 'Queued'
+    case 'claimed':
+      return 'Claimed'
+    case 'setup_running':
+      return 'Setting up'
+    case 'setup_failed':
+      return 'Setup failed'
+    case 'agent_running':
+      return 'Running'
+    case 'agent_failed':
+      return 'Failed'
+    case 'agent_succeeded':
+      return 'Succeeded'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'interrupted':
+      return 'Interrupted'
+  }
+}
+
+function getAgentJobNotice(job: RemoteAgentJobSummary): string {
+  switch (job.status) {
+    case 'agent_running':
+      return 'Agent is running on the desktop app.'
+    case 'claimed':
+      return 'Desktop app claimed the agent job.'
+    case 'setup_running':
+      return 'Desktop app is preparing the local environment.'
+    case 'queued':
+      return 'Agent job is queued for the desktop app.'
+    default:
+      return ''
+  }
 }
 
 function buildRepoGroups(repos: DesktopRepoSummary[]): RepoGroup[] {
@@ -399,8 +476,11 @@ function RemoteDashboard({
   workers: DesktopWorkerSummary[] | null
 }): React.JSX.Element {
   const createBranchRequest = useMutation(api.branchRequests.createBranchRequest)
+  const createAgentJob = useMutation(api.agentJobs.createAgentJob)
   const [repoForBranchRequest, setRepoForBranchRequest] = useState<DesktopRepoSummary | null>(null)
   const [isRequestingBranch, setIsRequestingBranch] = useState(false)
+  const [draftPrompt, setDraftPrompt] = useState('')
+  const [isSubmittingAgentJob, setIsSubmittingAgentJob] = useState(false)
   const [remoteNotice, setRemoteNotice] = useState<RemoteNotice | null>(null)
   const selectedWorker = useMemo(
     () => workers?.find((worker) => worker.workerId === selectedWorkerId) ?? null,
@@ -414,8 +494,28 @@ function RemoteDashboard({
     () => workerRepos.find((repo) => getRepoKey(repo) === selectedRepoKey) ?? null,
     [selectedRepoKey, workerRepos]
   )
+  const agentJobs = useQuery(
+    api.agentJobs.listRecentAgentJobs,
+    selectedRepo
+      ? {
+          targetWorkerId: selectedRepo.workerId,
+          targetRepoId: selectedRepo.localRepoId
+        }
+      : 'skip'
+  )
+  const activeAgentJob = useMemo(
+    () => agentJobs?.find((job) => isActiveAgentJobStatus(job.status)) ?? null,
+    [agentJobs]
+  )
   const selectedWorkerStatus = selectedWorker ? getWorkerDisplayStatus(selectedWorker, now) : null
   const isLoading = !workers || !repos
+  const canSubmitAgentJob =
+    Boolean(selectedRepo) &&
+    agentJobs !== undefined &&
+    selectedWorkerStatus !== 'Offline' &&
+    Boolean(selectedRepo?.isValid) &&
+    !activeAgentJob &&
+    !isSubmittingAgentJob
 
   async function handleCreateBranchRequest(branchName: string): Promise<void> {
     const sourceRepo = repoForBranchRequest
@@ -444,6 +544,37 @@ function RemoteDashboard({
       })
     } finally {
       setIsRequestingBranch(false)
+    }
+  }
+
+  async function handleSubmitPrompt(): Promise<void> {
+    const targetRepo = selectedRepo
+    const promptText = draftPrompt.trim()
+
+    if (!targetRepo || !promptText || !canSubmitAgentJob) {
+      return
+    }
+
+    setIsSubmittingAgentJob(true)
+
+    try {
+      await createAgentJob({
+        targetWorkerId: targetRepo.workerId,
+        targetRepoId: targetRepo.localRepoId,
+        promptText
+      })
+      setDraftPrompt('')
+      setRemoteNotice({
+        tone: 'success',
+        message: 'Agent job queued for the desktop app.'
+      })
+    } catch (error) {
+      setRemoteNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to queue agent job.'
+      })
+    } finally {
+      setIsSubmittingAgentJob(false)
     }
   }
 
@@ -489,11 +620,16 @@ function RemoteDashboard({
               <Notice tone={remoteNotice.tone} message={remoteNotice.message} />
             ) : null}
 
+            {activeAgentJob ? (
+              <Notice tone="success" message={getAgentJobNotice(activeAgentJob)} />
+            ) : null}
+
             <main className="min-h-0 flex-1 overflow-y-auto">
               {isLoading ? (
                 <CenteredStatus compact message="Loading desktop state..." />
               ) : selectedRepo && selectedWorker ? (
                 <WorkspacePanel
+                  agentJobs={agentJobs ?? []}
                   now={now}
                   repo={selectedRepo}
                   worker={selectedWorker}
@@ -504,7 +640,13 @@ function RemoteDashboard({
               )}
             </main>
 
-            <PromptComposer />
+            <PromptComposer
+              disabled={!canSubmitAgentJob}
+              isSubmitting={isSubmittingAgentJob}
+              onSubmit={() => void handleSubmitPrompt()}
+              prompt={draftPrompt}
+              setPrompt={setDraftPrompt}
+            />
           </section>
         </div>
       </section>
@@ -791,17 +933,32 @@ function BranchRequestDialog({
   open: boolean
   repo: DesktopRepoSummary | null
 }): React.JSX.Element | null {
-  const [branchName, setBranchName] = useState('')
-
-  useEffect(() => {
-    if (open) {
-      setBranchName('')
-    }
-  }, [open])
-
   if (!open || !repo) {
     return null
   }
+
+  return (
+    <BranchRequestDialogContent
+      isSubmitting={isSubmitting}
+      onOpenChange={onOpenChange}
+      onSubmit={onSubmit}
+      repo={repo}
+    />
+  )
+}
+
+function BranchRequestDialogContent({
+  isSubmitting,
+  onOpenChange,
+  onSubmit,
+  repo
+}: {
+  isSubmitting: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (branchName: string) => void
+  repo: DesktopRepoSummary
+}): React.JSX.Element {
+  const [branchName, setBranchName] = useState('')
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
     event.preventDefault()
@@ -938,11 +1095,13 @@ function WorkspaceHeader({
 }
 
 function WorkspacePanel({
+  agentJobs,
   now,
   repo,
   worker,
   workerStatus
 }: {
+  agentJobs: RemoteAgentJobSummary[]
   now: number
   repo: DesktopRepoSummary
   worker: DesktopWorkerSummary
@@ -997,10 +1156,13 @@ function WorkspacePanel({
             <div className="mt-5 rounded-lg border border-white/8 bg-black/18 p-4">
               <p className="text-sm font-medium text-slate-100">Remote command surface</p>
               <p className="mt-2 text-sm leading-6 text-slate-400">
-                Branch requests are queued through Convex and executed by the Electron app with the
-                configured workspace script path and default script args.
+                Branch requests and agent prompts are queued through Convex and executed by the
+                Electron app against the local repository. Agent logs stay local; the web dashboard
+                receives final summaries only.
               </p>
             </div>
+
+            <AgentJobList jobs={agentJobs} />
           </div>
 
           <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
@@ -1019,6 +1181,75 @@ function WorkspacePanel({
         </div>
       </article>
     </div>
+  )
+}
+
+function AgentJobList({ jobs }: { jobs: RemoteAgentJobSummary[] }): React.JSX.Element {
+  return (
+    <section className="mt-5 rounded-lg border border-white/8 bg-white/[0.025]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-slate-100">Agent Jobs</p>
+          <p className="mt-1 text-xs text-slate-500">Final summaries from desktop execution</p>
+        </div>
+        <span className="text-xs text-slate-500">{jobs.length}</span>
+      </div>
+
+      {jobs.length === 0 ? (
+        <p className="px-4 py-4 text-sm text-slate-400">No agent jobs for this repository yet.</p>
+      ) : (
+        <div className="divide-y divide-white/8">
+          {jobs.slice(0, 5).map((job) => (
+            <AgentJobRow key={job.jobId} job={job} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AgentJobRow({ job }: { job: RemoteAgentJobSummary }): React.JSX.Element {
+  const isActive = isActiveAgentJobStatus(job.status)
+  const isSuccess = job.status === 'agent_succeeded'
+  const statusClassName = isSuccess
+    ? 'text-emerald-300'
+    : isActive
+      ? 'text-blue-300'
+      : 'text-rose-300'
+
+  return (
+    <article className="px-4 py-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="line-clamp-2 text-sm leading-5 text-slate-200">{job.promptText}</p>
+          <p className="mt-2 text-xs text-slate-500">
+            {job.branchName ? `${job.branchName} - ` : ''}
+            {formatFullTimestamp(job.createdAt)}
+          </p>
+        </div>
+
+        <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs ${statusClassName}`}>
+          {isActive ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : isSuccess ? (
+            <CheckCircle2 className="size-3.5" />
+          ) : (
+            <AlertTriangle className="size-3.5" />
+          )}
+          {getAgentJobStatusLabel(job.status)}
+        </span>
+      </div>
+
+      {job.resultSummary ? (
+        <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/8 bg-black/18 p-3 font-sans text-sm leading-6 text-slate-300">
+          {job.resultSummary}
+        </pre>
+      ) : job.errorMessage ? (
+        <p className="mt-3 rounded-md border border-rose-300/14 bg-rose-950/18 p-3 text-sm leading-6 text-rose-100/86">
+          {job.errorMessage}
+        </p>
+      ) : null}
+    </article>
   )
 }
 
@@ -1058,18 +1289,40 @@ function StatusTile({
   )
 }
 
-function PromptComposer(): React.JSX.Element {
+function PromptComposer({
+  disabled,
+  isSubmitting,
+  onSubmit,
+  prompt,
+  setPrompt
+}: {
+  disabled: boolean
+  isSubmitting: boolean
+  onSubmit: () => void
+  prompt: string
+  setPrompt: (value: string) => void
+}): React.JSX.Element {
+  const submitDisabled = disabled || isSubmitting || !prompt.trim()
+
   return (
     <div className="shrink-0 border-t border-white/10 px-4 py-5 sm:px-6">
       <form
         className="mx-auto flex max-w-[980px] flex-col gap-3 rounded-lg border border-white/14 bg-[#0b1018]/95 p-2 shadow-[0_16px_70px_rgba(0,0,0,0.28)] sm:flex-row sm:items-end"
-        onSubmit={(event) => event.preventDefault()}
+        onSubmit={(event) => {
+          event.preventDefault()
+
+          if (!submitDisabled) {
+            onSubmit()
+          }
+        }}
       >
         <div className="flex min-w-0 flex-1 flex-col">
           <textarea
             className="min-h-12 resize-none border-0 bg-transparent px-3 py-2 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled
-            placeholder="Remote command relay is not connected in this build..."
+            disabled={disabled || isSubmitting}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="Ask Codex to work in this local repository..."
+            value={prompt}
           />
 
           <div className="flex items-center gap-1 px-1 pb-1">
@@ -1097,10 +1350,14 @@ function PromptComposer(): React.JSX.Element {
 
           <button
             className="inline-flex size-10 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
-            disabled
+            disabled={submitDisabled}
             type="submit"
           >
-            <SendHorizontal className="size-5" />
+            {isSubmitting ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <SendHorizontal className="size-5" />
+            )}
             <span className="sr-only">Send prompt</span>
           </button>
         </div>

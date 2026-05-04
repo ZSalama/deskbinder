@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as agentJobs from "../agentJobs.js";
 import type * as auth from "../auth.js";
 import type * as branchRequests from "../branchRequests.js";
 import type * as repos from "../repos.js";
@@ -20,6 +21,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentJobs: typeof agentJobs;
   auth: typeof auth;
   branchRequests: typeof branchRequests;
   repos: typeof repos;

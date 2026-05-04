@@ -66,7 +66,6 @@ export function useBranchRequestRunner({
 
     let isActive = true
     runningRequestIdRef.current = request.requestId
-    setActiveRequest(request)
 
     const runRequest = async (): Promise<void> => {
       try {
@@ -77,6 +76,10 @@ export function useBranchRequestRunner({
 
         if (!claimedRequest) {
           return
+        }
+
+        if (isActive) {
+          setActiveRequest(request)
         }
 
         const response = await desktopApi.runWorkspaceScript({

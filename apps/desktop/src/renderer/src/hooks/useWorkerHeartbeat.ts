@@ -8,6 +8,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000
 type UseWorkerHeartbeatOptions = {
   config: DeskbinderConfig | null
   enabled: boolean
+  status?: 'online' | 'busy'
 }
 
 type UseWorkerHeartbeatResult = {
@@ -24,7 +25,8 @@ function toErrorMessage(error: unknown): string {
 
 export function useWorkerHeartbeat({
   config,
-  enabled
+  enabled,
+  status = 'online'
 }: UseWorkerHeartbeatOptions): UseWorkerHeartbeatResult {
   const registerDesktopWorker = useMutation(api.workers.registerDesktopWorker)
   const heartbeatDesktopWorker = useMutation(api.workers.heartbeatDesktopWorker)
@@ -46,7 +48,7 @@ export function useWorkerHeartbeat({
           workerId,
           name: workerName,
           autoRunEnabled,
-          status: 'online'
+          status
         })
 
         if (isActive) {
@@ -64,7 +66,7 @@ export function useWorkerHeartbeat({
         await heartbeatDesktopWorker({
           workerId,
           autoRunEnabled,
-          status: 'online'
+          status
         })
 
         if (isActive) {
@@ -87,7 +89,15 @@ export function useWorkerHeartbeat({
       isActive = false
       window.clearInterval(intervalId)
     }
-  }, [autoRunEnabled, enabled, heartbeatDesktopWorker, registerDesktopWorker, workerId, workerName])
+  }, [
+    autoRunEnabled,
+    enabled,
+    heartbeatDesktopWorker,
+    registerDesktopWorker,
+    status,
+    workerId,
+    workerName
+  ])
 
   return {
     error
