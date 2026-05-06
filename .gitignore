@@ -13,6 +13,8 @@ out/
 dist/
 release/
 .next/
+playwright-report/
+test-results/
 *.asar
 *.asar.unpacked
 

@@ -3,7 +3,7 @@ import { access, stat } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import { extname, normalize, resolve } from 'node:path'
 
-const RENDERER_ROOT = resolve(__dirname, '../../renderer')
+const RENDERER_ROOT = resolve(__dirname, '../renderer')
 const INDEX_FILE = resolve(RENDERER_ROOT, 'index.html')
 
 const CONTENT_TYPES: Record<string, string> = {

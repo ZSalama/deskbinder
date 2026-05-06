@@ -18,6 +18,7 @@ import icon from '../../resources/icon.png?asset'
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['https:', 'mailto:'])
 const WORKSPACE_SCRIPT_CONCURRENCY_FAILURE_STEP = 'concurrency_guard'
+const USE_BUILT_RENDERER = process.env['DESKBINDER_USE_BUILT_RENDERER'] === '1'
 
 function getRendererUrl(): URL | null {
   const rendererUrl = process.env['ELECTRON_RENDERER_URL']
@@ -201,17 +202,18 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
 }
 
 async function createWindow(): Promise<void> {
-  const rendererUrl = is.dev
-    ? (() => {
-        const url = getRendererUrl()
+  const rendererUrl =
+    is.dev && !USE_BUILT_RENDERER
+      ? (() => {
+          const url = getRendererUrl()
 
-        if (!url) {
-          throw new Error('Renderer URL is required in development')
-        }
+          if (!url) {
+            throw new Error('Renderer URL is required in development')
+          }
 
-        return url
-      })()
-    : await getProductionRendererUrl()
+          return url
+        })()
+      : await getProductionRendererUrl()
   const allowedOrigin = rendererUrl.origin
   const mainWindow = new BrowserWindow({
     width: 1280,

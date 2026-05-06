@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "start": "pnpm --filter @deskbinder/desktop start",
+    "test:desktop": "pnpm --filter @deskbinder/desktop test:e2e",
     "typecheck": "pnpm -r --if-present run typecheck"
   },
   "devDependencies": {
