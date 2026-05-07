@@ -21,11 +21,8 @@ import {
   Loader2,
   LogOut,
   Monitor,
-  Paperclip,
   Plus,
   SendHorizontal,
-  Sparkles,
-  Terminal,
   Workflow
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -1145,7 +1142,6 @@ function HeaderStatusIcon({
         )}
         role="img"
         tabIndex={0}
-        title={title}
       >
         {icon}
       </span>
@@ -1186,7 +1182,9 @@ function AgentJobList({
     responseText: string
   ) => void
 }): React.JSX.Element {
-  const visibleJobs = [...jobs].sort((first, second) => first.createdAt - second.createdAt).slice(-8)
+  const visibleJobs = [...jobs]
+    .sort((first, second) => first.createdAt - second.createdAt)
+    .slice(-8)
 
   return (
     <section className="flex flex-col gap-5" aria-label="Conversation">
@@ -1330,7 +1328,7 @@ function PromptComposer({
   return (
     <div className="shrink-0 border-t border-white/10 bg-[#080d14]/92 px-4 py-4 sm:px-6">
       <form
-        className="mx-auto flex max-w-[820px] flex-col rounded-[28px] border border-white/14 bg-[#111822]/96 p-2 shadow-[0_18px_80px_rgba(0,0,0,0.3)] transition-colors focus-within:border-blue-300/35"
+        className="mx-auto flex max-w-[820px] items-center gap-3 rounded-[28px] border border-white/14 bg-[#111822]/96 p-2 shadow-[0_18px_80px_rgba(0,0,0,0.3)] transition-colors focus-within:border-blue-300/35"
         onSubmit={(event) => {
           event.preventDefault()
 
@@ -1340,7 +1338,7 @@ function PromptComposer({
         }}
       >
         <textarea
-          className="max-h-44 min-h-14 resize-none border-0 bg-transparent px-4 py-3 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="max-h-44 min-h-14 min-w-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={inputDisabled}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
@@ -1353,53 +1351,20 @@ function PromptComposer({
           value={prompt}
         />
 
-        <div className="flex items-center justify-between gap-3 px-2 pb-1">
-          <div className="flex items-center gap-1">
-            <IconButton label="Attach file">
-              <Paperclip className="size-5" />
-            </IconButton>
-            <IconButton label="Terminal">
-              <Terminal className="size-5" />
-            </IconButton>
-            <IconButton label="Agent mode">
-              <Sparkles className="size-5" />
-            </IconButton>
-          </div>
-
-          <button
-            className="inline-flex size-9 items-center justify-center rounded-full bg-slate-100 text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-white/14 disabled:text-slate-500"
-            disabled={submitDisabled}
-            type="submit"
-          >
-            {isSubmitting ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <SendHorizontal className="size-4" />
-            )}
-            <span className="sr-only">Send prompt</span>
-          </button>
-        </div>
+        <button
+          className="inline-flex size-9 items-center justify-center rounded-full bg-slate-100 text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-white/14 disabled:text-slate-500"
+          disabled={submitDisabled}
+          type="submit"
+        >
+          {isSubmitting ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <SendHorizontal className="size-4" />
+          )}
+          <span className="sr-only">Send prompt</span>
+        </button>
       </form>
     </div>
-  )
-}
-
-function IconButton({
-  children,
-  label
-}: {
-  children: React.ReactNode
-  label: string
-}): React.JSX.Element {
-  return (
-    <button
-      className="inline-flex size-8 items-center justify-center rounded-md text-slate-400 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
-      disabled
-      type="button"
-    >
-      {children}
-      <span className="sr-only">{label}</span>
-    </button>
   )
 }
 
