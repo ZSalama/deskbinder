@@ -16,19 +16,15 @@ import {
   Bot,
   ChevronDown,
   CheckCircle2,
-  Clock3,
-  Copy,
   Folder,
   GitBranch,
   Loader2,
   LogOut,
   Monitor,
   Paperclip,
-  Play,
   Plus,
   SendHorizontal,
   Sparkles,
-  Square,
   Terminal,
   Workflow
 } from 'lucide-react'
@@ -669,13 +665,9 @@ function RemoteDashboard({
               ) : selectedRepo && selectedWorker ? (
                 <WorkspacePanel
                   agentJobs={agentJobs ?? []}
-                  now={now}
                   onAnswerHumanInputRequest={(requestId, responseText) =>
                     void handleAnswerHumanInputRequest(requestId, responseText)
                   }
-                  repo={selectedRepo}
-                  worker={selectedWorker}
-                  workerStatus={selectedWorkerStatus ?? 'Offline'}
                 />
               ) : (
                 <EmptyWorkspaceState hasWorkers={Boolean(workers.length)} />
@@ -1081,9 +1073,29 @@ function WorkspaceHeader({
   selectedWorkerStatus: DisplayWorkerStatus | null
 }): React.JSX.Element {
   const connected = selectedWorkerStatus === 'Online' || selectedWorkerStatus === 'Busy'
+  const repoReady = selectedRepo ? isRunnableRepo(selectedRepo) : false
+  const headerStatusDetails =
+    selectedRepo && selectedWorker ? (
+      <div className="flex shrink-0 items-center gap-1.5" aria-label="Repository and worker status">
+        <HeaderStatusIcon
+          detail={`${selectedWorker.name} - ${selectedWorkerStatus ?? 'Offline'} - heartbeat ${formatLastSeen(selectedWorker.lastSeenAt)} - auto run ${selectedWorker.autoRunEnabled ? 'enabled' : 'disabled'}`}
+          icon={<Monitor className="size-4" />}
+          label="Worker"
+          tone={connected ? (selectedWorkerStatus === 'Busy' ? 'busy' : 'good') : 'muted'}
+        />
+        <HeaderStatusIcon
+          detail={`${selectedRepo.readinessMessage ?? (repoReady ? 'Ready for agent work' : 'Needs attention before running')} - synced ${formatFullTimestamp(selectedRepo.lastSeenAt)} - ${selectedRepo.agentExecutable} via ${selectedRepo.workspaceScriptPath}`}
+          icon={
+            repoReady ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />
+          }
+          label={`Repository ${getReadinessLabel(selectedRepo.readinessStatus)}`}
+          tone={repoReady ? 'good' : 'warn'}
+        />
+      </div>
+    ) : null
 
   return (
-    <header className="flex min-h-[92px] shrink-0 flex-col justify-center gap-4 border-b border-white/10 px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+    <header className="flex min-h-[76px] shrink-0 items-center border-b border-white/10 px-6 py-4 sm:px-8">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="truncate text-xl font-semibold tracking-tight text-slate-100">
@@ -1093,135 +1105,73 @@ function WorkspaceHeader({
             <>
               <span className="text-xl text-slate-500">/</span>
               <span className="truncate text-xl font-semibold tracking-tight text-blue-400">
-                {selectedRepo.currentBranch || 'main'}
+                {getBranchLabel(selectedRepo)}
               </span>
             </>
           ) : null}
-          <span
-            className={joinClassNames(
-              'ml-0 inline-flex h-8 items-center rounded-full border px-4 text-sm sm:ml-3',
-              connected
-                ? 'border-emerald-400/24 bg-emerald-400/8 text-emerald-300'
-                : 'border-white/10 bg-white/[0.035] text-slate-300'
-            )}
-          >
-            <span className="mr-2 size-2 rounded-full bg-current" />
-            {connected ? 'Connected' : 'Waiting'}
-          </span>
+          {headerStatusDetails}
         </div>
-        {selectedWorker ? (
-          <p className="mt-2 truncate text-xs text-slate-500">{selectedWorker.name}</p>
-        ) : null}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/12 bg-white/[0.035] px-4 text-sm font-medium text-blue-300 hover:bg-blue-500/10 hover:text-blue-200 disabled:cursor-not-allowed disabled:opacity-45"
-          disabled
-          type="button"
-        >
-          <Play className="size-4 fill-current" />
-          Run
-        </button>
-        <button
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/12 bg-white/[0.035] px-4 text-sm font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-45"
-          disabled
-          type="button"
-        >
-          <Square className="size-4 fill-current" />
-          Stop
-        </button>
       </div>
     </header>
   )
 }
 
+function HeaderStatusIcon({
+  detail,
+  icon,
+  label,
+  tone = 'muted'
+}: {
+  detail: string
+  icon: React.ReactNode
+  label: string
+  tone?: 'busy' | 'good' | 'muted' | 'warn'
+}): React.JSX.Element {
+  const title = `${label}: ${detail}`
+
+  return (
+    <span className="group relative inline-flex">
+      <span
+        aria-label={title}
+        className={joinClassNames(
+          'inline-flex size-8 items-center justify-center rounded-md border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-300/40',
+          tone === 'good'
+            ? 'border-emerald-300/20 bg-emerald-300/8 text-emerald-300'
+            : tone === 'busy'
+              ? 'border-blue-300/20 bg-blue-300/8 text-blue-300'
+              : tone === 'warn'
+                ? 'border-amber-300/20 bg-amber-300/8 text-amber-300'
+                : 'border-white/10 bg-white/[0.035] text-slate-400'
+        )}
+        role="img"
+        tabIndex={0}
+        title={title}
+      >
+        {icon}
+      </span>
+      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+0.5rem)] z-30 hidden w-72 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-left shadow-[0_18px_60px_rgba(0,0,0,0.45)] group-hover:block group-focus-within:block">
+        <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          {label}
+        </span>
+        <span className="mt-1 block break-words text-xs leading-5 text-slate-200">{detail}</span>
+      </span>
+    </span>
+  )
+}
+
 function WorkspacePanel({
   agentJobs,
-  now,
-  onAnswerHumanInputRequest,
-  repo,
-  worker,
-  workerStatus
+  onAnswerHumanInputRequest
 }: {
   agentJobs: RemoteAgentJobSummary[]
-  now: number
   onAnswerHumanInputRequest: (
     requestId: Id<'agentJobHumanInputRequests'>,
     responseText: string
   ) => void
-  repo: DesktopRepoSummary
-  worker: DesktopWorkerSummary
-  workerStatus: DisplayWorkerStatus
 }): React.JSX.Element {
   return (
-    <div className="mx-auto flex w-full max-w-[980px] flex-col gap-6 px-6 py-6 sm:px-8">
-      <article className="flex justify-start">
-        <div className="min-w-0 max-w-[720px]">
-          <div className="rounded-lg border border-white/12 bg-[#0c121b]/88 px-5 py-5 text-[15px] leading-6 text-slate-200 shadow-[0_18px_60px_rgba(0,0,0,0.2)]">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <StatusTile
-                icon={<Monitor className="size-4" />}
-                label="Worker"
-                value={worker.name}
-                detail={`${workerStatus} - ${formatLastSeen(worker.lastSeenAt)}`}
-              />
-              <StatusTile
-                icon={<GitBranch className="size-4" />}
-                label="Branch"
-                value={repo.currentBranch || 'No branch'}
-                detail={repo.workspaceBranchName ?? `Local repo ${repo.localRepoId.slice(0, 8)}`}
-              />
-              <StatusTile
-                icon={<AlertTriangle className="size-4" />}
-                label="Readiness"
-                value={getReadinessLabel(repo.readinessStatus)}
-                detail={
-                  repo.readinessMessage ?? (repo.isValid ? 'Ready for Codex' : 'Needs attention')
-                }
-                tone={repo.isValid ? 'good' : 'warn'}
-              />
-              <StatusTile
-                icon={<Clock3 className="size-4" />}
-                label="Auto run"
-                value={worker.autoRunEnabled ? 'Enabled' : 'Disabled'}
-                detail={`Checked ${Math.max(0, Math.round((now - (worker.lastSeenAt ?? now)) / 1000))}s ago`}
-              />
-              <StatusTile
-                icon={<Terminal className="size-4" />}
-                label="Agent"
-                value={repo.agentExecutable}
-                detail={repo.workspaceScriptPath}
-              />
-            </div>
-
-            <div className="mt-5 rounded-lg border border-white/8 bg-black/18 p-4">
-              <p className="text-sm font-medium text-slate-100">Remote command surface</p>
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                Branch requests and agent prompts are queued through Convex and executed by the
-                Electron app against the local repository. Agent logs stay local; the web dashboard
-                receives final summaries only.
-              </p>
-            </div>
-
-            <AgentJobList jobs={agentJobs} onAnswerHumanInputRequest={onAnswerHumanInputRequest} />
-          </div>
-
-          <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
-            <span className={repo.isValid ? 'text-emerald-300' : 'text-amber-300'}>
-              {getReadinessLabel(repo.readinessStatus)}
-            </span>
-            <span>Synced {formatFullTimestamp(repo.lastSeenAt)}</span>
-            <button
-              className="inline-flex size-7 items-center justify-center rounded-md text-slate-500 hover:bg-white/8 hover:text-slate-200"
-              type="button"
-            >
-              <Copy className="size-4" />
-              <span className="sr-only">Copy repository id</span>
-            </button>
-          </div>
-        </div>
-      </article>
+    <div className="mx-auto flex w-full max-w-[900px] flex-col px-4 py-6 sm:px-8">
+      <AgentJobList jobs={agentJobs} onAnswerHumanInputRequest={onAnswerHumanInputRequest} />
     </div>
   )
 }
@@ -1236,28 +1186,22 @@ function AgentJobList({
     responseText: string
   ) => void
 }): React.JSX.Element {
-  return (
-    <section className="mt-5 rounded-lg border border-white/8 bg-white/[0.025]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
-        <div>
-          <p className="text-sm font-medium text-slate-100">Agent Jobs</p>
-          <p className="mt-1 text-xs text-slate-500">Final summaries from desktop execution</p>
-        </div>
-        <span className="text-xs text-slate-500">{jobs.length}</span>
-      </div>
+  const visibleJobs = [...jobs].sort((first, second) => first.createdAt - second.createdAt).slice(-8)
 
+  return (
+    <section className="flex flex-col gap-5" aria-label="Conversation">
       {jobs.length === 0 ? (
-        <p className="px-4 py-4 text-sm text-slate-400">No agent jobs for this repository yet.</p>
-      ) : (
-        <div className="divide-y divide-white/8">
-          {jobs.slice(0, 5).map((job) => (
-            <AgentJobRow
-              key={job.jobId}
-              job={job}
-              onAnswerHumanInputRequest={onAnswerHumanInputRequest}
-            />
-          ))}
+        <div className="flex min-h-[260px] items-center justify-center text-sm text-slate-500">
+          No messages yet
         </div>
+      ) : (
+        visibleJobs.map((job) => (
+          <AgentJobRow
+            key={job.jobId}
+            job={job}
+            onAnswerHumanInputRequest={onAnswerHumanInputRequest}
+          />
+        ))
       )}
     </section>
   )
@@ -1286,41 +1230,50 @@ function AgentJobRow({
   const pendingRequest = job.pendingHumanInputRequest
 
   return (
-    <article className="px-4 py-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="line-clamp-2 text-sm leading-5 text-slate-200">{job.promptText}</p>
-          <p className="mt-2 text-xs text-slate-500">
+    <article className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <div className="max-w-[78%] rounded-3xl rounded-br-lg bg-blue-600 px-4 py-3 text-[15px] leading-6 text-white shadow-[0_16px_50px_rgba(37,99,235,0.22)]">
+          <p className="whitespace-pre-wrap break-words">{job.promptText}</p>
+          <p className="mt-2 text-right text-[11px] text-blue-100/75">
             {job.branchName ? `${job.branchName} - ` : ''}
             {formatFullTimestamp(job.createdAt)}
           </p>
         </div>
-
-        <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs ${statusClassName}`}>
-          {isActive && job.status !== 'interrupted' ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : isSuccess ? (
-            <CheckCircle2 className="size-3.5" />
-          ) : (
-            <AlertTriangle className="size-3.5" />
-          )}
-          {getAgentJobStatusLabel(job.status)}
-        </span>
       </div>
 
-      {job.resultSummary ? (
-        <pre className="mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md border border-white/8 bg-black/18 p-3 font-sans text-sm leading-6 text-slate-300">
-          {job.resultSummary}
-        </pre>
-      ) : job.errorMessage ? (
-        <p className="mt-3 rounded-md border border-rose-300/14 bg-rose-950/18 p-3 text-sm leading-6 text-rose-100/86">
-          {job.errorMessage}
-        </p>
-      ) : null}
+      <div className="flex items-start gap-3">
+        <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.045] text-slate-300">
+          <Bot className="size-4" />
+        </div>
+        <div className="min-w-0 max-w-[78%] rounded-3xl rounded-bl-lg border border-white/10 bg-[#0c121b]/92 px-4 py-3 text-[15px] leading-6 text-slate-200 shadow-[0_16px_50px_rgba(0,0,0,0.18)]">
+          <span className={`inline-flex items-center gap-1.5 text-xs ${statusClassName}`}>
+            {isActive && job.status !== 'interrupted' ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : isSuccess ? (
+              <CheckCircle2 className="size-3.5" />
+            ) : (
+              <AlertTriangle className="size-3.5" />
+            )}
+            {getAgentJobStatusLabel(job.status)}
+          </span>
+
+          {job.resultSummary ? (
+            <div className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">
+              {job.resultSummary}
+            </div>
+          ) : job.errorMessage ? (
+            <p className="mt-3 rounded-2xl border border-rose-300/14 bg-rose-950/18 p-3 text-sm leading-6 text-rose-100/86">
+              {job.errorMessage}
+            </p>
+          ) : isActive ? (
+            <p className="mt-3 text-sm text-slate-400">Working...</p>
+          ) : null}
+        </div>
+      </div>
 
       {pendingRequest ? (
         <form
-          className="mt-3 space-y-3 rounded-md border border-amber-300/14 bg-amber-950/16 p-3"
+          className="ml-11 space-y-3 rounded-2xl border border-amber-300/14 bg-amber-950/16 p-3"
           onSubmit={(event) => {
             event.preventDefault()
             const responseText = humanInputResponse.trim()
@@ -1332,9 +1285,7 @@ function AgentJobRow({
           }}
         >
           <div>
-            <p className="text-xs font-medium uppercase tracking-[0.22em] text-amber-200/70">
-              Human Input Needed
-            </p>
+            <p className="text-xs font-medium text-amber-200/70">Human input needed</p>
             <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-amber-50/88">
               {pendingRequest.promptText}
             </p>
@@ -1360,42 +1311,6 @@ function AgentJobRow({
   )
 }
 
-function StatusTile({
-  detail,
-  icon,
-  label,
-  tone,
-  value
-}: {
-  detail: string
-  icon: React.ReactNode
-  label: string
-  tone?: 'good' | 'warn'
-  value: string
-}): React.JSX.Element {
-  return (
-    <div className="rounded-lg border border-white/8 bg-white/[0.025] p-4">
-      <div
-        className={joinClassNames(
-          'flex size-8 items-center justify-center rounded-md border',
-          tone === 'good'
-            ? 'border-emerald-300/18 bg-emerald-300/8 text-emerald-300'
-            : tone === 'warn'
-              ? 'border-amber-300/18 bg-amber-300/8 text-amber-300'
-              : 'border-blue-300/18 bg-blue-300/8 text-blue-300'
-        )}
-      >
-        {icon}
-      </div>
-      <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 truncate text-base font-medium text-white">{value}</p>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{detail}</p>
-    </div>
-  )
-}
-
 function PromptComposer({
   disabled,
   isSubmitting,
@@ -1410,11 +1325,12 @@ function PromptComposer({
   setPrompt: (value: string) => void
 }): React.JSX.Element {
   const submitDisabled = disabled || isSubmitting || !prompt.trim()
+  const inputDisabled = disabled || isSubmitting
 
   return (
-    <div className="shrink-0 border-t border-white/10 px-4 py-5 sm:px-6">
+    <div className="shrink-0 border-t border-white/10 bg-[#080d14]/92 px-4 py-4 sm:px-6">
       <form
-        className="mx-auto flex max-w-[980px] flex-col gap-3 rounded-lg border border-white/14 bg-[#0b1018]/95 p-2 shadow-[0_16px_70px_rgba(0,0,0,0.28)] sm:flex-row sm:items-end"
+        className="mx-auto flex max-w-[820px] flex-col rounded-[28px] border border-white/14 bg-[#111822]/96 p-2 shadow-[0_18px_80px_rgba(0,0,0,0.3)] transition-colors focus-within:border-blue-300/35"
         onSubmit={(event) => {
           event.preventDefault()
 
@@ -1423,16 +1339,22 @@ function PromptComposer({
           }
         }}
       >
-        <div className="flex min-w-0 flex-1 flex-col">
-          <textarea
-            className="min-h-12 resize-none border-0 bg-transparent px-3 py-2 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={disabled || isSubmitting}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="Ask Codex to work in this local repository..."
-            value={prompt}
-          />
+        <textarea
+          className="max-h-44 min-h-14 resize-none border-0 bg-transparent px-4 py-3 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={inputDisabled}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !submitDisabled) {
+              event.preventDefault()
+              onSubmit()
+            }
+          }}
+          placeholder="Message Codex"
+          value={prompt}
+        />
 
-          <div className="flex items-center gap-1 px-1 pb-1">
+        <div className="flex items-center justify-between gap-3 px-2 pb-1">
+          <div className="flex items-center gap-1">
             <IconButton label="Attach file">
               <Paperclip className="size-5" />
             </IconButton>
@@ -1443,27 +1365,16 @@ function PromptComposer({
               <Sparkles className="size-5" />
             </IconButton>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            className="inline-flex h-10 min-w-36 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm text-slate-200 hover:bg-white/[0.075] disabled:cursor-not-allowed disabled:opacity-55"
-            disabled
-            type="button"
-          >
-            <Bot className="size-4 text-slate-400" />
-            Codex
-          </button>
 
           <button
-            className="inline-flex size-10 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
+            className="inline-flex size-9 items-center justify-center rounded-full bg-slate-100 text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-white/14 disabled:text-slate-500"
             disabled={submitDisabled}
             type="submit"
           >
             {isSubmitting ? (
-              <Loader2 className="size-5 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <SendHorizontal className="size-5" />
+              <SendHorizontal className="size-4" />
             )}
             <span className="sr-only">Send prompt</span>
           </button>
