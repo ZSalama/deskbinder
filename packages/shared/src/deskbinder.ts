@@ -46,6 +46,28 @@ export type RepoSyncMetadataResponse = {
   repos: RepoSyncMetadata[]
 }
 
+export type DesktopRepoSummary = {
+  desktopRepoId: string
+  workerId: string
+  localRepoId: string
+  sourceLocalRepoId?: string
+  name: string
+  repoPath: string
+  workspaceScriptPath: string
+  defaultScriptArgs?: string
+  agentExecutable: AgentExecutable
+  currentBranch: string
+  workspaceBranchName?: string
+  isValid: boolean
+  readinessStatus: RepoReadinessStatus
+  readinessMessage: string | null
+  lastSeenAt: number
+}
+
+export type LocalDeviceConfig = {
+  workerId: string
+}
+
 export type WorkspaceScriptResult = {
   ok: boolean
   agentRunnable: boolean
@@ -106,11 +128,17 @@ export type CreateRepoInput = {
 }
 
 export type UpdateRepoInput = {
-  id: string
+  id?: string
+  localRepoId?: string
   name: string
   workspaceScriptPath: string
   defaultScriptArgs?: string
   agentExecutable?: AgentExecutable
+}
+
+export type ConvexSessionInput = {
+  convexUrl: string
+  authToken: string
 }
 
 export type RunWorkspaceScriptInput = {
@@ -190,13 +218,13 @@ export type AgentRunEvent =
     }
 
 export type RunWorkspaceScriptResponse = {
-  config: DeskbinderConfig
+  config?: DeskbinderConfig
   result: WorkspaceScriptResult
   selectedRepoId: string | null
 }
 
 export type DeleteWorkspaceResponse = {
-  config: DeskbinderConfig
+  config?: DeskbinderConfig
   deletedRepoId: string | null
   selectedRepoId: string | null
   summary: {

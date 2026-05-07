@@ -1,33 +1,30 @@
-import { api } from '@deskbinder/convex-client'
-import type { DeskbinderConfig } from '@deskbinder/shared/deskbinder'
+import type { LocalDeviceConfig } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
-import { useMutation } from 'convex/react'
 import { useEffect, useState } from 'react'
 
 const REPO_SYNC_INTERVAL_MS = 30_000
 
-type UseRepoMetadataSyncOptions = {
-  config: DeskbinderConfig | null
+type UseRepoStateSyncOptions = {
   desktopApi: DeskbinderApi | null
+  deviceConfig: LocalDeviceConfig | null
   enabled: boolean
 }
 
-type UseRepoMetadataSyncResult = {
+type UseRepoStateSyncResult = {
   error: string | null
 }
 
 function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unable to sync repo metadata.'
+  return error instanceof Error ? error.message : 'Unable to sync repo state.'
 }
 
-export function useRepoMetadataSync({
-  config,
+export function useRepoStateSync({
   desktopApi,
+  deviceConfig,
   enabled
-}: UseRepoMetadataSyncOptions): UseRepoMetadataSyncResult {
-  const syncDesktopRepos = useMutation(api.repos.syncDesktopRepos)
+}: UseRepoStateSyncOptions): UseRepoStateSyncResult {
   const [error, setError] = useState<string | null>(null)
-  const workerId = config?.workerId ?? null
+  const workerId = deviceConfig?.workerId ?? null
 
   useEffect(() => {
     if (!enabled || !desktopApi || !workerId) {
@@ -38,16 +35,7 @@ export function useRepoMetadataSync({
 
     const syncRepos = async (): Promise<void> => {
       try {
-        const metadata = await desktopApi.getRepoSyncMetadata()
-
-        if (metadata.workerId !== workerId) {
-          throw new Error('Local repo metadata worker mismatch.')
-        }
-
-        await syncDesktopRepos({
-          workerId,
-          repos: metadata.repos
-        })
+        await desktopApi.syncRepoStates()
 
         if (isActive) {
           setError(null)
@@ -69,7 +57,7 @@ export function useRepoMetadataSync({
       isActive = false
       window.clearInterval(intervalId)
     }
-  }, [desktopApi, enabled, syncDesktopRepos, workerId, config])
+  }, [desktopApi, enabled, workerId])
 
   return {
     error

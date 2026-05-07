@@ -1,6 +1,6 @@
 import { api } from '@deskbinder/convex-client'
 import type { Id } from '@deskbinder/convex-client'
-import type { AgentRunEvent, DeskbinderConfig } from '@deskbinder/shared/deskbinder'
+import type { AgentRunEvent, LocalDeviceConfig } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
@@ -37,7 +37,7 @@ type ActiveRemoteAgentJob = {
 type CompletedAgentEvent = Extract<AgentRunEvent, { type: 'completed' }>
 
 type UseRemoteAgentJobRunnerOptions = {
-  config: DeskbinderConfig | null
+  deviceConfig: LocalDeviceConfig | null
   desktopApi: DeskbinderApi | null
   enabled: boolean
   onNotice: (notice: { tone: 'error' | 'success' | 'warning'; message: string }) => void
@@ -74,12 +74,12 @@ function rememberCompletedEvent(
 }
 
 export function useRemoteAgentJobRunner({
-  config,
+  deviceConfig,
   desktopApi,
   enabled,
   onNotice
 }: UseRemoteAgentJobRunnerOptions): UseRemoteAgentJobRunnerResult {
-  const workerId = config?.workerId ?? null
+  const workerId = deviceConfig?.workerId ?? null
   const queuedJobs = useQuery(
     api.agentJobs.listQueuedAgentJobs,
     enabled && workerId ? { workerId } : 'skip'

@@ -99,9 +99,28 @@ async function getDesktopRepo(
   ownerTokenIdentifier: string,
   workerId: string,
   localRepoId: string
-): Promise<Doc<'desktopRepos'> | null> {
+): Promise<Doc<'desktopRepoConfigs'> | null> {
+  const repo = await ctx.db
+    .query('desktopRepoConfigs')
+    .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
+      q
+        .eq('ownerTokenIdentifier', ownerTokenIdentifier)
+        .eq('workerId', workerId)
+        .eq('localRepoId', localRepoId)
+    )
+    .first()
+
+  return repo && !repo.deletedAt ? repo : null
+}
+
+async function getDesktopRepoState(
+  ctx: QueryCtx | MutationCtx,
+  ownerTokenIdentifier: string,
+  workerId: string,
+  localRepoId: string
+): Promise<Doc<'desktopRepoStates'> | null> {
   return await ctx.db
-    .query('desktopRepos')
+    .query('desktopRepoStates')
     .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
       q
         .eq('ownerTokenIdentifier', ownerTokenIdentifier)
@@ -150,6 +169,10 @@ function toFinalAgentStatus(status: DesktopCompletionStatus): AgentJobStatus {
     case 'interrupted':
       return 'interrupted'
   }
+}
+
+function isRunnableRepoState(repoState: Doc<'desktopRepoStates'> | null): boolean {
+  return Boolean(repoState?.isValid || repoState?.readinessStatus === 'dirty')
 }
 
 async function getPendingHumanInputRequestSummary(
@@ -258,11 +281,18 @@ export const createAgentJob = mutation({
     )
 
     if (!repo) {
-      throw new Error('Repository is not synced.')
+      throw new Error('Repository is unavailable.')
     }
 
-    if (!repo.isValid || repo.readinessStatus !== 'ready') {
-      throw new Error(repo.readinessMessage ?? 'Repository is not ready for agent jobs.')
+    const repoState = await getDesktopRepoState(
+      ctx,
+      ownerTokenIdentifier,
+      args.targetWorkerId,
+      args.targetRepoId
+    )
+
+    if (!repoState || !isRunnableRepoState(repoState)) {
+      throw new Error(repoState?.readinessMessage ?? 'Repository is not ready for agent jobs.')
     }
 
     const now = Date.now()
@@ -272,7 +302,7 @@ export const createAgentJob = mutation({
       targetRepoId: args.targetRepoId,
       promptText: sanitizeRequiredString(args.promptText, 'Prompt text', PROMPT_MAX_CHARACTERS),
       status: 'queued',
-      branchName: repo.workspaceBranchName ?? repo.currentBranch,
+      branchName: repo.workspaceBranchName ?? repoState.currentBranch,
       createdAt: now,
       updatedAt: now
     })

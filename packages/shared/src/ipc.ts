@@ -3,10 +3,13 @@ import type {
   AppSettings,
   CancelAgentRunInput,
   CancelAgentRunResponse,
+  ConvexSessionInput,
   CreateRepoInput,
   DeleteWorkspaceInput,
   DeleteWorkspaceResponse,
   DeskbinderConfig,
+  DesktopRepoSummary,
+  LocalDeviceConfig,
   RepoSyncMetadataResponse,
   RunAgentInput,
   RunAgentResponse,
@@ -30,6 +33,15 @@ export interface DeskbinderApi {
   ping: () => Promise<string>
   getVersions: () => Promise<AppVersions>
   pickFolder: () => Promise<FolderPickResult>
+  setConvexSession: (input: ConvexSessionInput) => Promise<void>
+  clearConvexSession: () => Promise<void>
+  getDeviceConfig: () => Promise<LocalDeviceConfig>
+  createRemoteRepo: (input: CreateRepoInput) => Promise<DesktopRepoSummary>
+  updateRemoteRepoSettings: (input: UpdateRepoInput) => Promise<DesktopRepoSummary>
+  syncRepoStates: () => Promise<DesktopRepoSummary[]>
+  updateWorkerSettings: (
+    autoRunEnabled: AppSettings['autoRunEnabled']
+  ) => Promise<{ autoRunEnabled: boolean }>
   getLocalConfig: () => Promise<DeskbinderConfig>
   createRepo: (input: CreateRepoInput) => Promise<DeskbinderConfig>
   updateRepo: (input: UpdateRepoInput) => Promise<DeskbinderConfig>

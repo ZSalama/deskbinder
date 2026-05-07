@@ -9,6 +9,7 @@ import type {
   AgentExecutable,
   CreateRepoInput,
   DeskbinderConfig,
+  LocalDeviceConfig,
   LocalJobIndex,
   RepoSettings,
   TrackedWorkspaceProcess,
@@ -28,7 +29,6 @@ type GitCommandResult = {
 
 type RepoRootValidationOptions = {
   allowWorktree: boolean
-  requireClean: boolean
   requireWorktree?: boolean
 }
 
@@ -252,7 +252,7 @@ function resolveLegacyConfigPath(app: App, configPath: string): string | null {
 
 async function resolveRepoRoot(
   repoPath: string,
-  { allowWorktree, requireClean, requireWorktree = false }: RepoRootValidationOptions
+  { allowWorktree, requireWorktree = false }: RepoRootValidationOptions
 ): Promise<string> {
   const selectedPath = await canonicalizePath(repoPath)
   const insideWorkTreeResult = await runGitCommand(selectedPath, [
@@ -272,16 +272,6 @@ async function resolveRepoRoot(
   }
 
   await runGitCommand(repoRootPath, ['branch', '--show-current'])
-
-  if (requireClean) {
-    const statusResult = await runGitCommand(repoRootPath, ['status', '--porcelain'])
-
-    if (statusResult.stdout.trim().length > 0) {
-      throw new Error(
-        'This repository has uncommitted or untracked changes. Commit or stash them before adding it.'
-      )
-    }
-  }
 
   const gitDirResult = await runGitCommand(repoRootPath, ['rev-parse', '--git-dir'])
   const gitCommonDirResult = await runGitCommand(repoRootPath, ['rev-parse', '--git-common-dir'])
@@ -441,6 +431,14 @@ export class LocalConfigStore {
     }
   }
 
+  async readDeviceConfig(): Promise<LocalDeviceConfig> {
+    const config = await this.read()
+
+    return {
+      workerId: config.workerId
+    }
+  }
+
   async updateRepo(input: UpdateRepoInput): Promise<DeskbinderConfig> {
     const sanitizedInput = sanitizeUpdateRepoInput(input)
 
@@ -487,8 +485,7 @@ export class LocalConfigStore {
     }
 
     const normalizedRepoPath = await resolveRepoRoot(repoPath, {
-      allowWorktree: false,
-      requireClean: true
+      allowWorktree: false
     })
     const currentConfig = await this.read()
     const existingRepo = currentConfig.repos.find(
@@ -545,7 +542,6 @@ export class LocalConfigStore {
   }> {
     const normalizedWorkspacePath = await resolveRepoRoot(workspacePath, {
       allowWorktree: true,
-      requireClean: false,
       requireWorktree: true
     })
     const currentConfig = await this.read()
@@ -631,6 +627,23 @@ export class LocalConfigStore {
       repos: currentConfig.repos.map((repo) =>
         targetRepoIds.has(repo.id) ? { ...repo, workspaceProcesses: undefined } : repo
       )
+    }
+
+    await this.write(nextConfig)
+    return nextConfig
+  }
+
+  async trackWorkspaceRepo(repo: RepoSettings): Promise<DeskbinderConfig> {
+    const currentConfig = await this.read()
+    const existingRepo = currentConfig.repos.find((currentRepo) => currentRepo.id === repo.id)
+    const nextRepos = existingRepo
+      ? currentConfig.repos.map((currentRepo) =>
+          currentRepo.id === repo.id ? { ...currentRepo, ...repo, deleted: false } : currentRepo
+        )
+      : [...currentConfig.repos, repo]
+    const nextConfig = {
+      ...currentConfig,
+      repos: nextRepos
     }
 
     await this.write(nextConfig)

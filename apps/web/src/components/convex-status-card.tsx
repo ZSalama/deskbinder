@@ -50,6 +50,10 @@ type DesktopRepoSummary = {
   localRepoId: string
   sourceLocalRepoId?: string
   name: string
+  repoPath: string
+  workspaceScriptPath: string
+  defaultScriptArgs?: string
+  agentExecutable: 'codex' | 'claude'
   currentBranch: string
   workspaceBranchName?: string
   isValid: boolean
@@ -149,6 +153,10 @@ function getReadinessLabel(status: DesktopRepoSummary['readinessStatus']): strin
     case 'error':
       return 'Error'
   }
+}
+
+function isRunnableRepo(repo: DesktopRepoSummary | null): boolean {
+  return Boolean(repo?.isValid || repo?.readinessStatus === 'dirty')
 }
 
 function getWorkerDisplayStatus(worker: DesktopWorkerSummary, now: number): DisplayWorkerStatus {
@@ -523,7 +531,7 @@ function RemoteDashboard({
     Boolean(selectedRepo) &&
     agentJobs !== undefined &&
     selectedWorkerStatus !== 'Offline' &&
-    Boolean(selectedRepo?.isValid) &&
+    isRunnableRepo(selectedRepo) &&
     !activeAgentJob &&
     !isSubmittingAgentJob
 
@@ -1148,17 +1156,6 @@ function WorkspacePanel({
 }): React.JSX.Element {
   return (
     <div className="mx-auto flex w-full max-w-[980px] flex-col gap-6 px-6 py-6 sm:px-8">
-      <article className="flex justify-end">
-        <div className="min-w-0 max-w-[560px]">
-          <div className="rounded-lg border border-blue-300/10 bg-[#17243a] px-5 py-4 text-[15px] leading-6 text-slate-100 shadow-[0_16px_50px_rgba(0,0,0,0.2)]">
-            Manage <span className="font-medium">{repo.name}</span> from the web dashboard.
-          </div>
-          <p className="mt-1 text-right text-xs text-slate-500">
-            Last synced {formatFullTimestamp(repo.lastSeenAt)}
-          </p>
-        </div>
-      </article>
-
       <article className="flex justify-start">
         <div className="min-w-0 max-w-[720px]">
           <div className="rounded-lg border border-white/12 bg-[#0c121b]/88 px-5 py-5 text-[15px] leading-6 text-slate-200 shadow-[0_18px_60px_rgba(0,0,0,0.2)]">
@@ -1173,7 +1170,7 @@ function WorkspacePanel({
                 icon={<GitBranch className="size-4" />}
                 label="Branch"
                 value={repo.currentBranch || 'No branch'}
-                detail={`Local repo ${repo.localRepoId.slice(0, 8)}`}
+                detail={repo.workspaceBranchName ?? `Local repo ${repo.localRepoId.slice(0, 8)}`}
               />
               <StatusTile
                 icon={<AlertTriangle className="size-4" />}
@@ -1189,6 +1186,12 @@ function WorkspacePanel({
                 label="Auto run"
                 value={worker.autoRunEnabled ? 'Enabled' : 'Disabled'}
                 detail={`Checked ${Math.max(0, Math.round((now - (worker.lastSeenAt ?? now)) / 1000))}s ago`}
+              />
+              <StatusTile
+                icon={<Terminal className="size-4" />}
+                label="Agent"
+                value={repo.agentExecutable}
+                detail={repo.workspaceScriptPath}
               />
             </div>
 

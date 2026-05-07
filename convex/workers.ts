@@ -25,7 +25,7 @@ async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise
   return identity.tokenIdentifier
 }
 
-async function getDesktopWorker(
+async function getDesktopWorkerDoc(
   ctx: QueryCtx | MutationCtx,
   ownerTokenIdentifier: string,
   workerId: string
@@ -69,20 +69,19 @@ export const registerDesktopWorker = mutation({
   args: {
     workerId: v.string(),
     name: v.string(),
-    autoRunEnabled: v.boolean(),
+    autoRunEnabled: v.optional(v.boolean()),
     status: workerStatusValidator
   },
   handler: async (ctx, args): Promise<CombinedDesktopWorker> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
     const now = Date.now()
-    const existingWorker = await getDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
+    const existingWorker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
     const workerName = args.name.trim() || `Deskbinder Desktop ${args.workerId.slice(0, 8)}`
     let worker: Doc<'desktopWorkers'>
 
     if (existingWorker) {
       await ctx.db.patch(existingWorker._id, {
         name: workerName,
-        autoRunEnabled: args.autoRunEnabled,
         updatedAt: now
       })
       const updatedWorker = await ctx.db.get(existingWorker._id)
@@ -97,7 +96,7 @@ export const registerDesktopWorker = mutation({
         ownerTokenIdentifier,
         workerId: args.workerId,
         name: workerName,
-        autoRunEnabled: args.autoRunEnabled,
+        autoRunEnabled: args.autoRunEnabled ?? false,
         createdAt: now,
         updatedAt: now
       })
@@ -140,23 +139,15 @@ export const registerDesktopWorker = mutation({
 export const heartbeatDesktopWorker = mutation({
   args: {
     workerId: v.string(),
-    autoRunEnabled: v.boolean(),
     status: workerStatusValidator
   },
   handler: async (ctx, args): Promise<CombinedDesktopWorker> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
     const now = Date.now()
-    const worker = await getDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
+    const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
 
     if (!worker) {
       throw new Error('Worker is not registered.')
-    }
-
-    if (worker.autoRunEnabled !== args.autoRunEnabled) {
-      await ctx.db.patch(worker._id, {
-        autoRunEnabled: args.autoRunEnabled,
-        updatedAt: now
-      })
     }
 
     const existingHeartbeat = await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
@@ -183,6 +174,52 @@ export const heartbeatDesktopWorker = mutation({
 
     return toCombinedDesktopWorker(
       updatedWorker,
+      await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
+    )
+  }
+})
+
+export const updateDesktopWorkerSettings = mutation({
+  args: {
+    workerId: v.string(),
+    autoRunEnabled: v.boolean()
+  },
+  handler: async (ctx, args): Promise<CombinedDesktopWorker> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
+
+    if (!worker) {
+      throw new Error('Worker is not registered.')
+    }
+
+    await ctx.db.patch(worker._id, {
+      autoRunEnabled: args.autoRunEnabled,
+      updatedAt: Date.now()
+    })
+
+    const updatedWorker = (await ctx.db.get(worker._id)) ?? worker
+
+    return toCombinedDesktopWorker(
+      updatedWorker,
+      await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
+    )
+  }
+})
+
+export const getDesktopWorker = query({
+  args: {
+    workerId: v.string()
+  },
+  handler: async (ctx, args): Promise<CombinedDesktopWorker | null> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
+
+    if (!worker) {
+      return null
+    }
+
+    return toCombinedDesktopWorker(
+      worker,
       await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
     )
   }

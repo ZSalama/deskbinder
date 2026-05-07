@@ -1,10 +1,10 @@
-import { useUser } from '@clerk/react'
+import { useAuth, useUser } from '@clerk/react'
 import { api } from '@deskbinder/convex-client'
 import type { Id } from '@deskbinder/convex-client'
 import type {
   AgentRunEvent,
-  DeskbinderConfig,
-  RepoSettings,
+  DesktopRepoSummary,
+  LocalDeviceConfig,
   UpdateRepoInput
 } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
@@ -18,7 +18,7 @@ import { RunWorkspaceDialog } from './RunWorkspaceDialog'
 import { TranscriptPanel } from './TranscriptPanel'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import type { DashboardRepo, TranscriptItem } from './types'
-import { useRepoMetadataSync } from '../../hooks/useRepoMetadataSync'
+import { useRepoStateSync } from '../../hooks/useRepoStateSync'
 import { useWorkerHeartbeat } from '../../hooks/useWorkerHeartbeat'
 import { useBranchRequestRunner } from '../../hooks/useBranchRequestRunner'
 import { useRemoteAgentJobRunner } from '../../hooks/useRemoteAgentJobRunner'
@@ -29,15 +29,24 @@ function getPathBasename(path: string): string {
   return segments[segments.length - 1] || path
 }
 
-function toDashboardRepo(repo: RepoSettings): DashboardRepo {
+const convexUrl = import.meta.env.VITE_CONVEX_URL
+
+function toDashboardRepo(repo: DesktopRepoSummary): DashboardRepo {
   return {
-    ...repo,
-    status: 'ready'
+    id: repo.localRepoId,
+    name: repo.name,
+    repoPath: repo.repoPath,
+    workspaceScriptPath: repo.workspaceScriptPath,
+    defaultScriptArgs: repo.defaultScriptArgs,
+    agentExecutable: repo.agentExecutable,
+    sourceRepoId: repo.sourceLocalRepoId,
+    workspaceBranchName: repo.workspaceBranchName,
+    status: repo.isValid ? 'ready' : 'attention'
   }
 }
 
-function buildDashboardRepos(config: DeskbinderConfig | null): DashboardRepo[] {
-  return (config?.repos ?? []).filter((repo) => !repo.deleted).map(toDashboardRepo)
+function buildDashboardRepos(repos: DesktopRepoSummary[] | undefined): DashboardRepo[] {
+  return (repos ?? []).map(toDashboardRepo)
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -93,6 +102,11 @@ type RemoteAgentJobSummary = {
   pendingHumanInputRequest?: RemoteHumanInputRequest
 }
 
+type LocalClaimedAgentJob = {
+  jobId: Id<'agentJobs'>
+  attemptId: Id<'agentJobAttempts'>
+}
+
 type DesktopApiState = {
   api: DeskbinderApi | null
   error: string | null
@@ -126,10 +140,11 @@ function getInitialDesktopApiState(): DesktopApiState {
 }
 
 export function DashboardLayout(): React.JSX.Element {
+  const { getToken, isSignedIn } = useAuth()
   const { user } = useUser()
   const { isAuthenticated } = useConvexAuth()
   const [{ api: desktopApi, error: initialBridgeError }] = useState(getInitialDesktopApiState)
-  const [config, setConfig] = useState<DeskbinderConfig | null>(null)
+  const [deviceConfig, setDeviceConfig] = useState<LocalDeviceConfig | null>(null)
   const [isLoadingConfig, setIsLoadingConfig] = useState(() => desktopApi !== null)
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
@@ -150,7 +165,17 @@ export function DashboardLayout(): React.JSX.Element {
   )
   const [remoteHumanInputDraft, setRemoteHumanInputDraft] = useState('')
   const runRepoIdByRunId = useRef(new Map<string, string>())
-  const repos = useMemo(() => buildDashboardRepos(config), [config])
+  const localJobByRunId = useRef(new Map<string, LocalClaimedAgentJob>())
+  const workerId = deviceConfig?.workerId ?? null
+  const remoteRepos = useQuery(
+    api.repos.listDesktopRepos,
+    isAuthenticated && workerId ? { workerId } : 'skip'
+  ) as DesktopRepoSummary[] | undefined
+  const worker = useQuery(
+    api.workers.getDesktopWorker,
+    isAuthenticated && workerId ? { workerId } : 'skip'
+  ) as { autoRunEnabled: boolean } | null | undefined
+  const repos = useMemo(() => buildDashboardRepos(remoteRepos), [remoteRepos])
   const resolvedSelectedRepoId =
     selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
       ? selectedRepoId
@@ -160,12 +185,12 @@ export function DashboardLayout(): React.JSX.Element {
     [repos, resolvedSelectedRepoId]
   )
   const { error: workerHeartbeatError } = useWorkerHeartbeat({
-    config,
+    deviceConfig,
     enabled: isAuthenticated,
     status: activeAgentRun ? 'busy' : 'online'
   })
-  const { error: repoMetadataSyncError } = useRepoMetadataSync({
-    config,
+  const { error: repoMetadataSyncError } = useRepoStateSync({
+    deviceConfig,
     desktopApi,
     enabled: isAuthenticated
   })
@@ -174,28 +199,32 @@ export function DashboardLayout(): React.JSX.Element {
   }, [])
   const { activeBranchName: remoteBranchName, error: branchRequestRunnerError } =
     useBranchRequestRunner({
-      config,
+      deviceConfig,
       desktopApi,
       enabled: isAuthenticated,
-      onConfigUpdated: setConfig,
       onNotice: handleRemoteBranchNotice,
       onSelectedRepoId: setSelectedRepoId
     })
   const { activeJob: remoteAgentJob, error: remoteAgentJobRunnerError } = useRemoteAgentJobRunner({
-    config,
+    deviceConfig,
     desktopApi,
     enabled: isAuthenticated,
     onNotice: handleRemoteBranchNotice
   })
   const remoteAgentJobs = useQuery(
     api.agentJobs.listRecentAgentJobs,
-    isAuthenticated && config?.workerId && activeRepo
+    isAuthenticated && workerId && activeRepo
       ? {
-          targetWorkerId: config.workerId,
+          targetWorkerId: workerId,
           targetRepoId: activeRepo.id
         }
       : 'skip'
   ) as RemoteAgentJobSummary[] | undefined
+  const createAgentJob = useMutation(api.agentJobs.createAgentJob)
+  const claimAgentJob = useMutation(api.agentJobs.claimAgentJob)
+  const markAgentJobRunning = useMutation(api.agentJobs.markAgentJobRunning)
+  const completeAgentJob = useMutation(api.agentJobs.completeAgentJob)
+  const interruptAgentJob = useMutation(api.agentJobs.interruptAgentJob)
   const answerHumanInputRequest = useMutation(api.agentJobs.answerHumanInputRequest)
 
   useEffect(() => {
@@ -206,16 +235,13 @@ export function DashboardLayout(): React.JSX.Element {
     let isMounted = true
 
     void desktopApi
-      .getLocalConfig()
+      .getDeviceConfig()
       .then((nextConfig) => {
         if (!isMounted) {
           return
         }
 
-        setConfig(nextConfig)
-        setSelectedRepoId(
-          (currentSelectedRepoId) => currentSelectedRepoId ?? nextConfig.repos[0]?.id ?? null
-        )
+        setDeviceConfig(nextConfig)
       })
       .catch((error) => {
         if (!isMounted) {
@@ -223,7 +249,7 @@ export function DashboardLayout(): React.JSX.Element {
         }
 
         setBridgeError(
-          error instanceof Error ? error.message : 'Unable to load local deskbinder config.'
+          error instanceof Error ? error.message : 'Unable to load local deskbinder device config.'
         )
       })
       .finally(() => {
@@ -236,6 +262,48 @@ export function DashboardLayout(): React.JSX.Element {
       isMounted = false
     }
   }, [desktopApi])
+
+  useEffect(() => {
+    if (!desktopApi || !isSignedIn || !convexUrl) {
+      void desktopApi?.clearConvexSession()
+      return
+    }
+
+    let isActive = true
+
+    const syncSession = async (): Promise<void> => {
+      try {
+        const authToken = await getToken({ template: 'convex' })
+
+        if (!authToken || !isActive) {
+          return
+        }
+
+        await desktopApi.setConvexSession({
+          convexUrl,
+          authToken
+        })
+        setBridgeError(null)
+      } catch (error) {
+        if (isActive) {
+          setBridgeError(
+            error instanceof Error ? error.message : 'Unable to prepare Convex desktop session.'
+          )
+        }
+      }
+    }
+
+    void syncSession()
+
+    const intervalId = window.setInterval(() => {
+      void syncSession()
+    }, 60_000)
+
+    return () => {
+      isActive = false
+      window.clearInterval(intervalId)
+    }
+  }, [desktopApi, getToken, isSignedIn])
 
   useEffect(() => {
     if (!desktopApi) {
@@ -366,6 +434,39 @@ export function DashboardLayout(): React.JSX.Element {
         currentRun?.runId === completedEvent.runId ? null : currentRun
       )
       runRepoIdByRunId.current.delete(completedEvent.runId)
+      const localJob = localJobByRunId.current.get(completedEvent.runId)
+
+      if (localJob && workerId) {
+        localJobByRunId.current.delete(completedEvent.runId)
+        void (completedEvent.status === 'interrupted'
+          ? interruptAgentJob({
+              jobId: localJob.jobId,
+              attemptId: localJob.attemptId,
+              workerId,
+              runId: completedEvent.runId,
+              codexThreadId: completedEvent.codexThreadId,
+              promptText:
+                completedEvent.humanInputPrompt ??
+                completedEvent.lastMessage ??
+                'Codex needs human input before it can continue.',
+              resultSummary: completedEvent.lastMessage
+            })
+          : completeAgentJob({
+              jobId: localJob.jobId,
+              attemptId: localJob.attemptId,
+              workerId,
+              status: completedEvent.status,
+              exitCode: completedEvent.exitCode,
+              signal: completedEvent.signal,
+              errorMessage: completedEvent.errorMessage,
+              resultSummary: completedEvent.lastMessage
+            })).catch(() => {
+          setRepoSetupNotice({
+            tone: 'error',
+            message: 'Codex finished locally, but its Convex job summary could not be saved.'
+          })
+        })
+      }
 
       if (completedEvent.status === 'interrupted' && completedEvent.codexThreadId) {
         setInterruptedRunsByRepoId((currentRuns) => ({
@@ -400,7 +501,7 @@ export function DashboardLayout(): React.JSX.Element {
         })
       }
     })
-  }, [desktopApi])
+  }, [completeAgentJob, desktopApi, interruptAgentJob, workerId])
 
   const transcript = activeRepo ? (transcriptsByRepoId[activeRepo.id] ?? []) : []
   const activeRepoHasAgentRun = !!activeRepo && activeAgentRun?.repoId === activeRepo.id
@@ -434,17 +535,15 @@ export function DashboardLayout(): React.JSX.Element {
         setRepoSetupNotice(null)
 
         try {
-          const nextConfig = await api.createRepo({
+          const addedRepo = await api.createRemoteRepo({
             name: getPathBasename(result.path),
             repoPath: result.path
           })
 
-          const addedRepo = nextConfig.repos[nextConfig.repos.length - 1] ?? null
-          setConfig(nextConfig)
-          setSelectedRepoId(addedRepo?.id ?? nextConfig.repos[0]?.id ?? null)
+          setSelectedRepoId(addedRepo.localRepoId)
           setRepoSetupNotice({
             tone: 'success',
-            message: `Added ${addedRepo?.name ?? getPathBasename(result.path)} to local deskbinder config.`
+            message: `Added ${addedRepo.name ?? getPathBasename(result.path)} to this account.`
           })
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unable to add that repository.'
@@ -466,8 +565,7 @@ export function DashboardLayout(): React.JSX.Element {
 
   async function handleSaveRepo(nextRepo: UpdateRepoInput): Promise<void> {
     try {
-      const nextConfig = await getDesktopApi().updateRepo(nextRepo)
-      setConfig(nextConfig)
+      await getDesktopApi().updateRemoteRepoSettings(nextRepo)
       setBridgeError(null)
     } catch (error) {
       setRepoSetupNotice({
@@ -479,8 +577,7 @@ export function DashboardLayout(): React.JSX.Element {
 
   async function handleToggleAutoRun(nextValue: boolean): Promise<void> {
     try {
-      const nextConfig = await getDesktopApi().updateAppSettings(nextValue)
-      setConfig(nextConfig)
+      await getDesktopApi().updateWorkerSettings(nextValue)
       setBridgeError(null)
     } catch (error) {
       setRepoSetupNotice({
@@ -498,7 +595,6 @@ export function DashboardLayout(): React.JSX.Element {
         repoId: repo.id
       })
 
-      setConfig(response.config)
       setSelectedRepoId(response.selectedRepoId)
       setRepoForSettings(null)
       setIsSettingsOpen(false)
@@ -548,7 +644,6 @@ export function DashboardLayout(): React.JSX.Element {
       })
       const nextSelectedRepoId = response.selectedRepoId ?? targetRepo.id
 
-      setConfig(response.config)
       setSelectedRepoId(nextSelectedRepoId)
       setRepoForWorkspaceScript(null)
       setIsRunWorkspaceDialogOpen(false)
@@ -575,7 +670,7 @@ export function DashboardLayout(): React.JSX.Element {
     const targetRepo = activeRepo
     const promptText = draftPrompt.trim()
 
-    if (!targetRepo || !promptText || activeAgentRun) {
+    if (!targetRepo || !promptText || activeAgentRun || !workerId) {
       return
     }
 
@@ -603,6 +698,20 @@ export function DashboardLayout(): React.JSX.Element {
     setRepoSetupNotice(null)
 
     try {
+      const createdJob = await createAgentJob({
+        targetWorkerId: workerId,
+        targetRepoId: targetRepo.id,
+        promptText
+      })
+      const claimedJob = (await claimAgentJob({
+        jobId: createdJob.jobId,
+        workerId
+      })) as LocalClaimedAgentJob | null
+
+      if (!claimedJob) {
+        throw new Error('Codex job could not be claimed.')
+      }
+
       const response = await getDesktopApi().runAgent({
         repoId: targetRepo.id,
         promptText,
@@ -610,6 +719,13 @@ export function DashboardLayout(): React.JSX.Element {
       })
 
       if (!response.ok) {
+        await completeAgentJob({
+          jobId: claimedJob.jobId,
+          attemptId: claimedJob.attemptId,
+          workerId,
+          status: 'failed',
+          errorMessage: response.errorMessage
+        })
         setRepoSetupNotice({
           tone: 'error',
           message: response.errorMessage
@@ -617,6 +733,16 @@ export function DashboardLayout(): React.JSX.Element {
         return
       }
 
+      localJobByRunId.current.set(response.runId, {
+        jobId: claimedJob.jobId,
+        attemptId: claimedJob.attemptId
+      })
+      await markAgentJobRunning({
+        jobId: claimedJob.jobId,
+        attemptId: claimedJob.attemptId,
+        workerId,
+        runId: response.runId
+      })
       runRepoIdByRunId.current.set(response.runId, response.repoId)
       setActiveAgentRun({
         runId: response.runId,
@@ -711,7 +837,7 @@ export function DashboardLayout(): React.JSX.Element {
   if (isLoadingConfig) {
     return (
       <section className="mx-auto flex h-full min-h-0 w-full min-w-[1024px] max-w-[1400px] items-center justify-center">
-        <div className="text-sm text-slate-300/80">Loading local deskbinder config...</div>
+        <div className="text-sm text-slate-300/80">Loading deskbinder device config...</div>
       </section>
     )
   }
@@ -726,8 +852,8 @@ export function DashboardLayout(): React.JSX.Element {
           <h1 className="mt-4 text-2xl font-semibold text-white">The dashboard could not start.</h1>
           <p className="mt-4 text-sm leading-6 text-slate-200/82">{bridgeError}</p>
           <p className="mt-4 text-sm leading-6 text-slate-300/76">
-            Reload the window or restart the app. If this keeps happening, the preload bridge or
-            local config IPC handler is failing before the dashboard finishes mounting.
+            Reload the window or restart the app. If this keeps happening, the preload bridge,
+            Convex session, or local device config handler is failing before the dashboard mounts.
           </p>
         </div>
       </section>
@@ -742,7 +868,7 @@ export function DashboardLayout(): React.JSX.Element {
             accountEmail={user?.primaryEmailAddress?.emailAddress ?? 'unknown email'}
             accountName={user?.fullName ?? user?.username ?? 'Account'}
             accountImageUrl={user?.imageUrl ?? null}
-            autoRunEnabled={config?.appSettings.autoRunEnabled ?? false}
+            autoRunEnabled={worker?.autoRunEnabled ?? false}
             isPickingFolder={isPickingFolder}
             lastPickedFolder={selectedFolder}
             onOpenSettings={handleOpenSettings}

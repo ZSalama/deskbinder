@@ -1,6 +1,6 @@
 import { api } from '@deskbinder/convex-client'
 import type { Id } from '@deskbinder/convex-client'
-import type { DeskbinderConfig, RunWorkspaceScriptResponse } from '@deskbinder/shared/deskbinder'
+import type { LocalDeviceConfig, RunWorkspaceScriptResponse } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
@@ -13,10 +13,9 @@ type BranchRequest = {
 }
 
 type UseBranchRequestRunnerOptions = {
-  config: DeskbinderConfig | null
+  deviceConfig: LocalDeviceConfig | null
   desktopApi: DeskbinderApi | null
   enabled: boolean
-  onConfigUpdated: (config: DeskbinderConfig) => void
   onNotice: (notice: { tone: 'error' | 'success'; message: string }) => void
   onSelectedRepoId: (repoId: string | null) => void
 }
@@ -35,14 +34,13 @@ function getFailureMessage(response: RunWorkspaceScriptResponse): string {
 }
 
 export function useBranchRequestRunner({
-  config,
+  deviceConfig,
   desktopApi,
   enabled,
-  onConfigUpdated,
   onNotice,
   onSelectedRepoId
 }: UseBranchRequestRunnerOptions): UseBranchRequestRunnerResult {
-  const workerId = config?.workerId ?? null
+  const workerId = deviceConfig?.workerId ?? null
   const queuedRequests = useQuery(
     api.branchRequests.listQueuedBranchRequests,
     enabled && workerId ? { workerId } : 'skip'
@@ -87,7 +85,6 @@ export function useBranchRequestRunner({
           branchName: claimedRequest.branchName
         })
 
-        onConfigUpdated(response.config)
         onSelectedRepoId(response.selectedRepoId ?? claimedRequest.sourceLocalRepoId)
 
         await completeBranchRequest({
@@ -152,7 +149,6 @@ export function useBranchRequestRunner({
     completeBranchRequest,
     desktopApi,
     enabled,
-    onConfigUpdated,
     onNotice,
     onSelectedRepoId,
     queuedRequests,

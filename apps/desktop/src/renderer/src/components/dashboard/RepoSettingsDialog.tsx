@@ -54,7 +54,7 @@ export function RepoSettingsDialog({
           <DialogHeader className="border-b border-white/10 px-6 py-5">
             <DialogTitle className="text-lg text-white">Repo settings</DialogTitle>
             <DialogDescription className="text-slate-300/78">
-              Select a repo to edit its local dashboard metadata.
+              Select a repo to edit its account workspace settings.
             </DialogDescription>
           </DialogHeader>
 
@@ -118,7 +118,7 @@ function RepoSettingsDialogForm({
         <DialogHeader className="border-b border-white/10 px-6 py-5">
           <DialogTitle className="text-lg text-white">Repo settings</DialogTitle>
           <DialogDescription className="text-slate-300/78">
-            Update the local repo config stored in your deskbinder JSON file.
+            Update the repo settings stored with this signed-in account.
           </DialogDescription>
         </DialogHeader>
 

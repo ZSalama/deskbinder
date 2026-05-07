@@ -44,9 +44,9 @@ async function getDesktopRepo(
   ownerTokenIdentifier: string,
   workerId: string,
   localRepoId: string
-): Promise<Doc<'desktopRepos'> | null> {
-  return await ctx.db
-    .query('desktopRepos')
+): Promise<Doc<'desktopRepoConfigs'> | null> {
+  const repo = await ctx.db
+    .query('desktopRepoConfigs')
     .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
       q
         .eq('ownerTokenIdentifier', ownerTokenIdentifier)
@@ -54,6 +54,8 @@ async function getDesktopRepo(
         .eq('localRepoId', localRepoId)
     )
     .first()
+
+  return repo && !repo.deletedAt ? repo : null
 }
 
 function sanitizeBranchName(branchName: string): string {
@@ -114,7 +116,7 @@ export const createBranchRequest = mutation({
     )
 
     if (!sourceRepo) {
-      throw new Error('Source repository is not synced.')
+      throw new Error('Source repository is unavailable.')
     }
 
     if (sourceRepo.sourceLocalRepoId) {

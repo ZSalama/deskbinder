@@ -6,6 +6,15 @@ const api: DeskbinderApi = {
   ping: () => ipcRenderer.invoke(IPC_CHANNELS.ping),
   getVersions: () => ipcRenderer.invoke(IPC_CHANNELS.getVersions),
   pickFolder: () => ipcRenderer.invoke(IPC_CHANNELS.pickFolder),
+  setConvexSession: (input) => ipcRenderer.invoke(IPC_CHANNELS.setConvexSession, input),
+  clearConvexSession: () => ipcRenderer.invoke(IPC_CHANNELS.clearConvexSession),
+  getDeviceConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getDeviceConfig),
+  createRemoteRepo: (input) => ipcRenderer.invoke(IPC_CHANNELS.createRemoteRepo, input),
+  updateRemoteRepoSettings: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateRemoteRepoSettings, input),
+  syncRepoStates: () => ipcRenderer.invoke(IPC_CHANNELS.syncRepoStates),
+  updateWorkerSettings: (autoRunEnabled) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateWorkerSettings, autoRunEnabled),
   getLocalConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getLocalConfig),
   createRepo: (input) => ipcRenderer.invoke(IPC_CHANNELS.createRepo, input),
   updateRepo: (repo) => ipcRenderer.invoke(IPC_CHANNELS.updateRepo, repo),

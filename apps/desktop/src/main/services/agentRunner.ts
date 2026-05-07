@@ -11,13 +11,11 @@ import type {
   AgentRunStatus,
   CancelAgentRunInput,
   CancelAgentRunResponse,
-  DeskbinderConfig,
   RepoSettings,
   RunAgentInput,
   RunAgentResponse
 } from '@deskbinder/shared/deskbinder'
 import { IPC_CHANNELS } from '../../shared/ipcChannels'
-import type { LocalConfigStore } from './localConfig'
 
 const execFileAsync = promisify(execFile)
 const PROMPT_MAX_CHARACTERS = 100_000
@@ -81,6 +79,8 @@ type AgentRunLogPaths = {
   stderrPath: string
   stdoutPath: string
 }
+
+type ResolveRepoForExecution = (repoId: string) => Promise<RepoSettings>
 
 function sanitizeString(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -361,15 +361,11 @@ function buildAgentRunLogPaths(
   }
 }
 
-function getRepo(config: DeskbinderConfig, repoId: string): RepoSettings | null {
-  return config.repos.find((repo) => repo.id === repoId && !repo.deleted) ?? null
-}
-
 export class AgentRunner {
   private activeRun: ActiveAgentRun | null = null
 
   constructor(
-    private readonly localConfigStore: LocalConfigStore,
+    private readonly resolveRepoForExecution: ResolveRepoForExecution,
     private readonly logRootPath: string
   ) {}
 
@@ -626,12 +622,7 @@ export class AgentRunner {
       throw new Error('Prompt text is too long.')
     }
 
-    const config = await this.localConfigStore.read()
-    const repo = getRepo(config, repoId)
-
-    if (!repo) {
-      throw new Error('Selected repo is no longer configured.')
-    }
+    const repo = await this.resolveRepoForExecution(repoId)
 
     if (repo.agentExecutable !== 'codex') {
       throw new Error('Only the Codex agent is supported for this runner.')

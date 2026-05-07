@@ -15,6 +15,8 @@ const agentJobStatus = v.union(
 
 const workerStatus = v.union(v.literal('online'), v.literal('busy'), v.literal('offline'))
 
+const agentExecutable = v.union(v.literal('codex'), v.literal('claude'))
+
 const repoReadinessStatus = v.union(
   v.literal('ready'),
   v.literal('invalid'),
@@ -72,6 +74,51 @@ export default defineSchema({
     readinessMessage: v.optional(v.string()),
     lastSeenAt: v.number(),
     createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])
+    .index('by_ownerTokenIdentifier_and_workerId_and_localRepoId', [
+      'ownerTokenIdentifier',
+      'workerId',
+      'localRepoId'
+    ]),
+
+  desktopRepoConfigs: defineTable({
+    ownerTokenIdentifier: v.string(),
+    workerId: v.string(),
+    localRepoId: v.string(),
+    sourceLocalRepoId: v.optional(v.string()),
+    name: v.string(),
+    repoPath: v.string(),
+    workspaceScriptPath: v.string(),
+    defaultScriptArgs: v.optional(v.string()),
+    agentExecutable,
+    workspaceBranchName: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number()
+  })
+    .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])
+    .index('by_ownerTokenIdentifier_and_workerId_and_localRepoId', [
+      'ownerTokenIdentifier',
+      'workerId',
+      'localRepoId'
+    ])
+    .index('by_ownerTokenIdentifier_and_workerId_and_repoPath', [
+      'ownerTokenIdentifier',
+      'workerId',
+      'repoPath'
+    ]),
+
+  desktopRepoStates: defineTable({
+    ownerTokenIdentifier: v.string(),
+    workerId: v.string(),
+    localRepoId: v.string(),
+    currentBranch: v.string(),
+    isValid: v.boolean(),
+    readinessStatus: repoReadinessStatus,
+    readinessMessage: v.optional(v.string()),
+    lastSeenAt: v.number(),
     updatedAt: v.number()
   })
     .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])

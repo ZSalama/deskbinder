@@ -11,6 +11,12 @@ const repoReadinessStatusValidator = v.union(
   v.literal('error')
 )
 
+const agentExecutableValidator = v.union(v.literal('codex'), v.literal('claude'))
+
+const MAX_REPOS_PER_QUERY = 500
+const STRING_MAX_CHARACTERS = 4_000
+const SHORT_STRING_MAX_CHARACTERS = 240
+
 type RepoReadinessStatus =
   | 'ready'
   | 'invalid'
@@ -19,12 +25,18 @@ type RepoReadinessStatus =
   | 'missing_repo'
   | 'error'
 
-type DesktopRepoSummary = {
-  desktopRepoId: Id<'desktopRepos'>
+type AgentExecutable = 'codex' | 'claude'
+
+type DesktopRepoConfigSummary = {
+  desktopRepoId: Id<'desktopRepoConfigs'>
   workerId: string
   localRepoId: string
   sourceLocalRepoId?: string
   name: string
+  repoPath: string
+  workspaceScriptPath: string
+  defaultScriptArgs?: string
+  agentExecutable: AgentExecutable
   currentBranch: string
   workspaceBranchName?: string
   isValid: boolean
@@ -43,14 +55,52 @@ async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise
   return identity.tokenIdentifier
 }
 
-async function getDesktopRepo(
+async function requireDesktopWorker(
+  ctx: QueryCtx | MutationCtx,
+  ownerTokenIdentifier: string,
+  workerId: string
+): Promise<Doc<'desktopWorkers'>> {
+  const worker = await ctx.db
+    .query('desktopWorkers')
+    .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
+      q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', workerId)
+    )
+    .first()
+
+  if (!worker) {
+    throw new Error('Desktop worker is not registered.')
+  }
+
+  return worker
+}
+
+async function getDesktopRepoConfig(
   ctx: QueryCtx | MutationCtx,
   ownerTokenIdentifier: string,
   workerId: string,
   localRepoId: string
-): Promise<Doc<'desktopRepos'> | null> {
+): Promise<Doc<'desktopRepoConfigs'> | null> {
+  const repo = await ctx.db
+    .query('desktopRepoConfigs')
+    .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
+      q
+        .eq('ownerTokenIdentifier', ownerTokenIdentifier)
+        .eq('workerId', workerId)
+        .eq('localRepoId', localRepoId)
+    )
+    .first()
+
+  return repo && !repo.deletedAt ? repo : null
+}
+
+async function getDesktopRepoState(
+  ctx: QueryCtx | MutationCtx,
+  ownerTokenIdentifier: string,
+  workerId: string,
+  localRepoId: string
+): Promise<Doc<'desktopRepoStates'> | null> {
   return await ctx.db
-    .query('desktopRepos')
+    .query('desktopRepoStates')
     .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
       q
         .eq('ownerTokenIdentifier', ownerTokenIdentifier)
@@ -60,108 +110,248 @@ async function getDesktopRepo(
     .first()
 }
 
-function toDesktopRepoSummary(repo: Doc<'desktopRepos'>): DesktopRepoSummary {
+async function requireOwnedDesktopRepoConfig(
+  ctx: QueryCtx | MutationCtx,
+  ownerTokenIdentifier: string,
+  workerId: string,
+  localRepoId: string
+): Promise<Doc<'desktopRepoConfigs'>> {
+  const repo = await getDesktopRepoConfig(ctx, ownerTokenIdentifier, workerId, localRepoId)
+
+  if (!repo) {
+    throw new Error('Repository is unavailable.')
+  }
+
+  return repo
+}
+
+function sanitizeRequiredString(value: string, label: string, maxCharacters: number): string {
+  const trimmedValue = value.trim()
+
+  if (!trimmedValue) {
+    throw new Error(`${label} is required.`)
+  }
+
+  if (trimmedValue.length > maxCharacters) {
+    throw new Error(`${label} is too long.`)
+  }
+
+  return trimmedValue
+}
+
+function sanitizeOptionalString(
+  value: string | undefined,
+  maxCharacters: number
+): string | undefined {
+  const trimmedValue = value?.trim()
+
+  if (!trimmedValue) {
+    return undefined
+  }
+
+  return trimmedValue.slice(0, maxCharacters)
+}
+
+function toDesktopRepoSummary(
+  repo: Doc<'desktopRepoConfigs'>,
+  state: Doc<'desktopRepoStates'> | null
+): DesktopRepoConfigSummary {
   return {
     desktopRepoId: repo._id,
     workerId: repo.workerId,
     localRepoId: repo.localRepoId,
     sourceLocalRepoId: repo.sourceLocalRepoId,
     name: repo.name,
-    currentBranch: repo.currentBranch,
+    repoPath: repo.repoPath,
+    workspaceScriptPath: repo.workspaceScriptPath,
+    defaultScriptArgs: repo.defaultScriptArgs,
+    agentExecutable: repo.agentExecutable,
+    currentBranch: state?.currentBranch ?? 'unknown',
     workspaceBranchName: repo.workspaceBranchName,
-    isValid: repo.isValid,
-    readinessStatus: repo.readinessStatus,
-    readinessMessage: repo.readinessMessage ?? null,
-    lastSeenAt: repo.lastSeenAt
+    isValid: state?.isValid ?? false,
+    readinessStatus: state?.readinessStatus ?? 'missing_repo',
+    readinessMessage: state?.readinessMessage ?? 'Repository has not been checked on this desktop.',
+    lastSeenAt: state?.lastSeenAt ?? 0
   }
 }
 
-export const syncDesktopRepos = mutation({
+export const createDesktopRepo = mutation({
   args: {
     workerId: v.string(),
-    repos: v.array(
-      v.object({
-        localRepoId: v.string(),
-        sourceLocalRepoId: v.optional(v.string()),
-        name: v.string(),
-        currentBranch: v.string(),
-        workspaceBranchName: v.optional(v.string()),
-        isValid: v.boolean(),
-        readinessStatus: repoReadinessStatusValidator,
-        readinessMessage: v.optional(v.string()),
-        workerId: v.string(),
-        lastSeenAt: v.number()
-      })
-    )
+    localRepoId: v.string(),
+    sourceLocalRepoId: v.optional(v.string()),
+    name: v.string(),
+    repoPath: v.string(),
+    workspaceScriptPath: v.string(),
+    defaultScriptArgs: v.optional(v.string()),
+    agentExecutable: agentExecutableValidator,
+    workspaceBranchName: v.optional(v.string())
   },
-  handler: async (ctx, args): Promise<DesktopRepoSummary[]> => {
+  handler: async (ctx, args): Promise<DesktopRepoConfigSummary> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
-    const now = Date.now()
-    const incomingRepoIds = new Set(args.repos.map((repo) => repo.localRepoId))
+    await requireDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
 
-    for (const repo of args.repos) {
-      if (repo.workerId !== args.workerId) {
-        throw new Error('Repo metadata worker mismatch.')
-      }
-
-      const existingRepo = await getDesktopRepo(
-        ctx,
-        ownerTokenIdentifier,
-        args.workerId,
-        repo.localRepoId
+    const repoPath = sanitizeRequiredString(args.repoPath, 'Repo path', STRING_MAX_CHARACTERS)
+    const existingReposForPath = await ctx.db
+      .query('desktopRepoConfigs')
+      .withIndex('by_ownerTokenIdentifier_and_workerId_and_repoPath', (q) =>
+        q
+          .eq('ownerTokenIdentifier', ownerTokenIdentifier)
+          .eq('workerId', args.workerId)
+          .eq('repoPath', repoPath)
       )
-      const readinessMessage = repo.readinessMessage?.trim()
-      const repoFields = {
-        name: repo.name.trim() || `Repo ${repo.localRepoId.slice(0, 8)}`,
-        currentBranch: repo.currentBranch,
-        isValid: repo.isValid,
-        readinessStatus: repo.readinessStatus,
-        lastSeenAt: repo.lastSeenAt,
-        updatedAt: now
-      }
-      const repoPatch = {
-        ...repoFields,
-        ...(repo.sourceLocalRepoId ? { sourceLocalRepoId: repo.sourceLocalRepoId } : {}),
-        ...(repo.workspaceBranchName ? { workspaceBranchName: repo.workspaceBranchName } : {}),
-        ...(readinessMessage !== undefined ? { readinessMessage } : {})
-      }
+      .take(10)
 
-      if (existingRepo) {
-        await ctx.db.patch(existingRepo._id, repoPatch)
-      } else {
-        await ctx.db.insert('desktopRepos', {
-          ownerTokenIdentifier,
-          workerId: args.workerId,
-          localRepoId: repo.localRepoId,
-          ...repoPatch,
-          createdAt: now
-        })
-      }
+    if (existingReposForPath.some((repo) => !repo.deletedAt)) {
+      throw new Error('This repository is already configured in deskbinder.')
     }
 
-    const existingRepos = await ctx.db
-      .query('desktopRepos')
-      .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
-        q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', args.workerId)
+    const existingRepo = await ctx.db
+      .query('desktopRepoConfigs')
+      .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
+        q
+          .eq('ownerTokenIdentifier', ownerTokenIdentifier)
+          .eq('workerId', args.workerId)
+          .eq('localRepoId', args.localRepoId)
       )
-      .collect()
+      .first()
 
-    await Promise.all(
-      existingRepos
-        .filter((repo) => !incomingRepoIds.has(repo.localRepoId))
-        .map(async (repo) => {
-          await ctx.db.delete(repo._id)
-        })
+    if (existingRepo && !existingRepo.deletedAt) {
+      throw new Error('Repository id is already configured.')
+    }
+
+    const now = Date.now()
+    const repoFields = {
+      ownerTokenIdentifier,
+      workerId: args.workerId,
+      localRepoId: sanitizeRequiredString(args.localRepoId, 'Repo id', SHORT_STRING_MAX_CHARACTERS),
+      name: sanitizeRequiredString(args.name, 'Repo name', SHORT_STRING_MAX_CHARACTERS),
+      repoPath,
+      workspaceScriptPath: sanitizeRequiredString(
+        args.workspaceScriptPath,
+        'Workspace script path',
+        STRING_MAX_CHARACTERS
+      ),
+      agentExecutable: args.agentExecutable,
+      ...(sanitizeOptionalString(args.sourceLocalRepoId, SHORT_STRING_MAX_CHARACTERS)
+        ? { sourceLocalRepoId: sanitizeOptionalString(args.sourceLocalRepoId, SHORT_STRING_MAX_CHARACTERS) }
+        : {}),
+      ...(sanitizeOptionalString(args.defaultScriptArgs, STRING_MAX_CHARACTERS)
+        ? { defaultScriptArgs: sanitizeOptionalString(args.defaultScriptArgs, STRING_MAX_CHARACTERS) }
+        : {}),
+      ...(sanitizeOptionalString(args.workspaceBranchName, SHORT_STRING_MAX_CHARACTERS)
+        ? { workspaceBranchName: sanitizeOptionalString(args.workspaceBranchName, SHORT_STRING_MAX_CHARACTERS) }
+        : {}),
+      createdAt: now,
+      updatedAt: now
+    }
+    const repoId =
+      existingRepo && existingRepo.deletedAt
+        ? (await ctx.db.patch(existingRepo._id, {
+            ...repoFields,
+            deletedAt: undefined
+          }),
+          existingRepo._id)
+        : await ctx.db.insert('desktopRepoConfigs', repoFields)
+    const repo = await ctx.db.get(repoId)
+
+    if (!repo) {
+      throw new Error('Unable to create repository.')
+    }
+
+    return toDesktopRepoSummary(repo, await getDesktopRepoState(ctx, ownerTokenIdentifier, args.workerId, repo.localRepoId))
+  }
+})
+
+export const updateDesktopRepoSettings = mutation({
+  args: {
+    workerId: v.string(),
+    localRepoId: v.string(),
+    name: v.string(),
+    workspaceScriptPath: v.string(),
+    defaultScriptArgs: v.optional(v.string()),
+    agentExecutable: agentExecutableValidator
+  },
+  handler: async (ctx, args): Promise<DesktopRepoConfigSummary> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const repo = await requireOwnedDesktopRepoConfig(
+      ctx,
+      ownerTokenIdentifier,
+      args.workerId,
+      args.localRepoId
+    )
+    const defaultScriptArgs = sanitizeOptionalString(args.defaultScriptArgs, STRING_MAX_CHARACTERS)
+
+    await ctx.db.patch(repo._id, {
+      name: sanitizeRequiredString(args.name, 'Repo name', SHORT_STRING_MAX_CHARACTERS),
+      workspaceScriptPath: sanitizeRequiredString(
+        args.workspaceScriptPath,
+        'Workspace script path',
+        STRING_MAX_CHARACTERS
+      ),
+      defaultScriptArgs,
+      agentExecutable: args.agentExecutable,
+      updatedAt: Date.now()
+    })
+
+    const updatedRepo = await ctx.db.get(repo._id)
+
+    if (!updatedRepo) {
+      throw new Error('Repository is unavailable.')
+    }
+
+    return toDesktopRepoSummary(
+      updatedRepo,
+      await getDesktopRepoState(ctx, ownerTokenIdentifier, args.workerId, args.localRepoId)
+    )
+  }
+})
+
+export const softDeleteDesktopRepo = mutation({
+  args: {
+    workerId: v.string(),
+    localRepoId: v.string()
+  },
+  handler: async (ctx, args): Promise<DesktopRepoConfigSummary> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const repo = await requireOwnedDesktopRepoConfig(
+      ctx,
+      ownerTokenIdentifier,
+      args.workerId,
+      args.localRepoId
+    )
+    const now = Date.now()
+
+    await ctx.db.patch(repo._id, {
+      deletedAt: now,
+      updatedAt: now
+    })
+
+    return toDesktopRepoSummary(
+      { ...repo, deletedAt: now, updatedAt: now },
+      await getDesktopRepoState(ctx, ownerTokenIdentifier, args.workerId, args.localRepoId)
+    )
+  }
+})
+
+export const getDesktopRepoConfigForExecution = query({
+  args: {
+    workerId: v.string(),
+    localRepoId: v.string()
+  },
+  handler: async (ctx, args): Promise<DesktopRepoConfigSummary> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const repo = await requireOwnedDesktopRepoConfig(
+      ctx,
+      ownerTokenIdentifier,
+      args.workerId,
+      args.localRepoId
     )
 
-    const syncedRepos = await ctx.db
-      .query('desktopRepos')
-      .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
-        q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', args.workerId)
-      )
-      .collect()
-
-    return syncedRepos.map(toDesktopRepoSummary)
+    return toDesktopRepoSummary(
+      repo,
+      await getDesktopRepoState(ctx, ownerTokenIdentifier, args.workerId, args.localRepoId)
+    )
   }
 })
 
@@ -169,23 +359,108 @@ export const listDesktopRepos = query({
   args: {
     workerId: v.optional(v.string())
   },
-  handler: async (ctx, args): Promise<DesktopRepoSummary[]> => {
+  handler: async (ctx, args): Promise<DesktopRepoConfigSummary[]> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
-    const workerId = args.workerId
-    const repos = workerId
+    const repos = args.workerId
       ? await ctx.db
-          .query('desktopRepos')
+          .query('desktopRepoConfigs')
           .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
-            q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', workerId)
+            q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', args.workerId!)
           )
-          .collect()
+          .take(MAX_REPOS_PER_QUERY)
       : await ctx.db
-          .query('desktopRepos')
+          .query('desktopRepoConfigs')
           .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
             q.eq('ownerTokenIdentifier', ownerTokenIdentifier)
           )
-          .collect()
+          .take(MAX_REPOS_PER_QUERY)
+    const activeRepos = repos.filter((repo) => !repo.deletedAt)
 
-    return repos.map(toDesktopRepoSummary)
+    return await Promise.all(
+      activeRepos.map(async (repo) =>
+        toDesktopRepoSummary(
+          repo,
+          await getDesktopRepoState(ctx, ownerTokenIdentifier, repo.workerId, repo.localRepoId)
+        )
+      )
+    )
+  }
+})
+
+export const syncDesktopRepoStates = mutation({
+  args: {
+    workerId: v.string(),
+    repos: v.array(
+      v.object({
+        localRepoId: v.string(),
+        currentBranch: v.string(),
+        isValid: v.boolean(),
+        readinessStatus: repoReadinessStatusValidator,
+        readinessMessage: v.optional(v.string()),
+        lastSeenAt: v.number()
+      })
+    )
+  },
+  handler: async (ctx, args): Promise<DesktopRepoConfigSummary[]> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    await requireDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
+    const now = Date.now()
+
+    for (const repoState of args.repos) {
+      const repo = await requireOwnedDesktopRepoConfig(
+        ctx,
+        ownerTokenIdentifier,
+        args.workerId,
+        repoState.localRepoId
+      )
+      const existingState = await getDesktopRepoState(
+        ctx,
+        ownerTokenIdentifier,
+        args.workerId,
+        repo.localRepoId
+      )
+      const readinessMessage = sanitizeOptionalString(
+        repoState.readinessMessage,
+        STRING_MAX_CHARACTERS
+      )
+      const stateFields = {
+        ownerTokenIdentifier,
+        workerId: args.workerId,
+        localRepoId: repo.localRepoId,
+        currentBranch: sanitizeRequiredString(
+          repoState.currentBranch,
+          'Current branch',
+          SHORT_STRING_MAX_CHARACTERS
+        ),
+        isValid: repoState.isValid,
+        readinessStatus: repoState.readinessStatus,
+        ...(readinessMessage ? { readinessMessage } : {}),
+        lastSeenAt: repoState.lastSeenAt,
+        updatedAt: now
+      }
+
+      if (existingState) {
+        await ctx.db.patch(existingState._id, stateFields)
+      } else {
+        await ctx.db.insert('desktopRepoStates', stateFields)
+      }
+    }
+
+    const repos = await ctx.db
+      .query('desktopRepoConfigs')
+      .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
+        q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', args.workerId)
+      )
+      .take(MAX_REPOS_PER_QUERY)
+    const activeRepos = repos.filter((repo) => !repo.deletedAt)
+
+    return await Promise.all(
+      activeRepos.map(async (repo) =>
+        toDesktopRepoSummary(
+          repo,
+          await getDesktopRepoState(ctx, ownerTokenIdentifier, repo.workerId, repo.localRepoId)
+        )
+      )
+    )
   }
 })

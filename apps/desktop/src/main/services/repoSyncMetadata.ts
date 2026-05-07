@@ -5,6 +5,7 @@ import { isAbsolute, normalize, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type {
   DeskbinderConfig,
+  DesktopRepoSummary,
   RepoReadinessStatus,
   RepoSettings,
   RepoSyncMetadata,
@@ -58,6 +59,10 @@ function createReadinessResult(
     readinessStatus,
     readinessMessage
   }
+}
+
+function isRunnableReadinessStatus(readinessStatus: RepoReadinessStatus): boolean {
+  return readinessStatus === 'ready' || readinessStatus === 'dirty'
 }
 
 async function validateWorkspaceScript(
@@ -134,13 +139,22 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
     }
 
     const statusResult = await runGitCommand(repoPath, ['status', '--porcelain'])
+    const hasLocalChanges = statusResult.stdout.trim().length > 0
 
-    if (statusResult.stdout.trim().length > 0) {
-      return createReadinessResult(
-        'dirty',
-        'Commit or stash local changes before running cloud jobs.',
-        currentBranch
-      )
+    if (!isWorkspace) {
+      try {
+        await validateWorkspaceScript(repoPath, repo.workspaceScriptPath)
+      } catch {
+        return createReadinessResult(
+          'missing_script',
+          'Workspace bootstrap script is missing or not executable.',
+          currentBranch
+        )
+      }
+    }
+
+    if (hasLocalChanges) {
+      return createReadinessResult('dirty', 'Working tree has local changes.', currentBranch)
     }
   } catch {
     return createReadinessResult(
@@ -148,18 +162,6 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
       'Local repository could not be validated as a Git repository.',
       currentBranch
     )
-  }
-
-  if (!isWorkspace) {
-    try {
-      await validateWorkspaceScript(repoPath, repo.workspaceScriptPath)
-    } catch {
-      return createReadinessResult(
-        'missing_script',
-        'Workspace bootstrap script is missing or not executable.',
-        currentBranch
-      )
-    }
   }
 
   return createReadinessResult('ready', 'Ready for cloud jobs.', currentBranch)
@@ -180,7 +182,7 @@ export async function buildRepoSyncMetadata(
         name: repo.name,
         currentBranch: readiness.currentBranch,
         workspaceBranchName: repo.workspaceBranchName,
-        isValid: readiness.readinessStatus === 'ready',
+        isValid: isRunnableReadinessStatus(readiness.readinessStatus),
         readinessStatus: readiness.readinessStatus,
         readinessMessage: readiness.readinessMessage,
         workerId: config.workerId,
@@ -193,4 +195,45 @@ export async function buildRepoSyncMetadata(
     workerId: config.workerId,
     repos
   }
+}
+
+export async function buildRepoStateMetadata({
+  repos
+}: {
+  repos: DesktopRepoSummary[]
+}): Promise<
+  Array<{
+    localRepoId: string
+    currentBranch: string
+    isValid: boolean
+    readinessStatus: RepoReadinessStatus
+    readinessMessage?: string
+    lastSeenAt: number
+  }>
+> {
+  const lastSeenAt = Date.now()
+
+  return await Promise.all(
+    repos.map(async (repo) => {
+      const readiness = await inspectRepoReadiness({
+        id: repo.localRepoId,
+        name: repo.name,
+        repoPath: repo.repoPath,
+        workspaceScriptPath: repo.workspaceScriptPath,
+        defaultScriptArgs: repo.defaultScriptArgs,
+        agentExecutable: repo.agentExecutable,
+        sourceRepoId: repo.sourceLocalRepoId,
+        workspaceBranchName: repo.workspaceBranchName
+      })
+
+      return {
+        localRepoId: repo.localRepoId,
+        currentBranch: readiness.currentBranch,
+        isValid: isRunnableReadinessStatus(readiness.readinessStatus),
+        readinessStatus: readiness.readinessStatus,
+        readinessMessage: readiness.readinessMessage,
+        lastSeenAt
+      }
+    })
+  )
 }

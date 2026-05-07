@@ -1,12 +1,12 @@
 import { api } from '@deskbinder/convex-client'
-import type { DeskbinderConfig } from '@deskbinder/shared/deskbinder'
+import type { LocalDeviceConfig } from '@deskbinder/shared/deskbinder'
 import { useMutation } from 'convex/react'
 import { useEffect, useMemo, useState } from 'react'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 
 type UseWorkerHeartbeatOptions = {
-  config: DeskbinderConfig | null
+  deviceConfig: LocalDeviceConfig | null
   enabled: boolean
   status?: 'online' | 'busy'
 }
@@ -24,15 +24,14 @@ function toErrorMessage(error: unknown): string {
 }
 
 export function useWorkerHeartbeat({
-  config,
+  deviceConfig,
   enabled,
   status = 'online'
 }: UseWorkerHeartbeatOptions): UseWorkerHeartbeatResult {
   const registerDesktopWorker = useMutation(api.workers.registerDesktopWorker)
   const heartbeatDesktopWorker = useMutation(api.workers.heartbeatDesktopWorker)
   const [error, setError] = useState<string | null>(null)
-  const workerId = config?.workerId ?? null
-  const autoRunEnabled = config?.appSettings.autoRunEnabled ?? false
+  const workerId = deviceConfig?.workerId ?? null
   const workerName = useMemo(() => (workerId ? buildWorkerName(workerId) : null), [workerId])
 
   useEffect(() => {
@@ -47,7 +46,6 @@ export function useWorkerHeartbeat({
         await registerDesktopWorker({
           workerId,
           name: workerName,
-          autoRunEnabled,
           status
         })
 
@@ -65,7 +63,6 @@ export function useWorkerHeartbeat({
       try {
         await heartbeatDesktopWorker({
           workerId,
-          autoRunEnabled,
           status
         })
 
@@ -90,7 +87,6 @@ export function useWorkerHeartbeat({
       window.clearInterval(intervalId)
     }
   }, [
-    autoRunEnabled,
     enabled,
     heartbeatDesktopWorker,
     registerDesktopWorker,

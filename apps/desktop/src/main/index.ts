@@ -5,7 +5,7 @@ import type { AppVersions, FolderPickResult } from '@deskbinder/shared/ipc'
 import type { RunWorkspaceScriptResponse } from '@deskbinder/shared/deskbinder'
 import { LocalConfigStore } from './services/localConfig'
 import { createRendererServer, type RendererServer } from './services/rendererServer'
-import { deleteWorkspace } from './services/deleteWorkspace'
+import { deleteWorkspaceForRepo } from './services/deleteWorkspace'
 import {
   collectTrackedWorkspaceProcesses,
   terminateTrackedWorkspaceProcesses
@@ -13,6 +13,8 @@ import {
 import { AgentRunner } from './services/agentRunner'
 import { buildRepoSyncMetadata } from './services/repoSyncMetadata'
 import { runWorkspaceScript } from './services/workspaceScript'
+import { ConvexSession } from './services/convexSession'
+import { ConvexRepoStore } from './services/convexRepoStore'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
 
@@ -72,6 +74,8 @@ async function pickFolder(window: BrowserWindow | null): Promise<FolderPickResul
 
 let rendererServer: RendererServer | null = null
 let localConfigStore: LocalConfigStore | null = null
+let convexSession: ConvexSession | null = null
+let convexRepoStore: ConvexRepoStore | null = null
 let agentRunner: AgentRunner | null = null
 let activeWorkspaceScriptRun: Promise<RunWorkspaceScriptResponse> | null = null
 let hasCompletedQuitCleanup = false
@@ -125,19 +129,18 @@ async function cleanupBeforeQuit(): Promise<void> {
 }
 
 async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScriptResponse> {
-  if (!localConfigStore) {
-    throw new Error('Local config store is unavailable.')
+  if (!convexRepoStore) {
+    throw new Error('Convex repo store is unavailable.')
   }
 
-  const configStore = localConfigStore
   const repoId = getStringInput(input, 'repoId')
   const branchName = getStringInput(input, 'branchName')
-  const currentConfig = await configStore.read()
-  const sourceRepo = currentConfig.repos.find((repo) => repo.id === repoId)
+  let sourceRepo
 
-  if (!sourceRepo) {
+  try {
+    sourceRepo = await convexRepoStore.getRepoForExecution(repoId)
+  } catch {
     return {
-      config: currentConfig,
       selectedRepoId: null,
       result: {
         ok: false,
@@ -156,29 +159,38 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
 
   if (result.ok && result.agentRunnable && result.workspacePath) {
     try {
-      const registration = await configStore.registerWorkspaceRepo(
+      const registration = await convexRepoStore.registerWorkspaceRepo({
         sourceRepo,
+        workspacePath: result.workspacePath,
+        workspaceName: result.workspaceName,
+        branchName: result.branchName
+      })
+      const workspaceProcesses = await collectTrackedWorkspaceProcesses(
         result.workspacePath,
-        result.workspaceName,
-        {
-          branchName: result.branchName,
-          processes: await collectTrackedWorkspaceProcesses(
-            result.workspacePath,
-            [result.processes?.dev, result.processes?.convex].filter(
-              (pid): pid is number => typeof pid === 'number' && Number.isInteger(pid) && pid > 1
-            )
-          )
-        }
+        [result.processes?.dev, result.processes?.convex].filter(
+          (pid): pid is number => typeof pid === 'number' && Number.isInteger(pid) && pid > 1
+        )
       )
 
+      await localConfigStore?.trackWorkspaceRepo({
+        id: registration.localRepoId,
+        name: registration.name,
+        repoPath: registration.repoPath,
+        workspaceScriptPath: registration.workspaceScriptPath,
+        defaultScriptArgs: registration.defaultScriptArgs,
+        agentExecutable: registration.agentExecutable,
+        sourceRepoId: sourceRepo.id,
+        sourceRepoPath: sourceRepo.repoPath,
+        workspaceBranchName: registration.workspaceBranchName,
+        workspaceProcesses
+      })
+
       return {
-        config: registration.config,
-        selectedRepoId: registration.repoId,
+        selectedRepoId: registration.localRepoId,
         result
       }
     } catch (error) {
       return {
-        config: await configStore.read(),
         selectedRepoId: sourceRepo.id,
         result: {
           ...result,
@@ -195,7 +207,6 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
   }
 
   return {
-    config: currentConfig,
     selectedRepoId: sourceRepo.id,
     result
   }
@@ -273,7 +284,24 @@ async function createWindow(): Promise<void> {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.electron')
   localConfigStore = new LocalConfigStore(app)
-  agentRunner = new AgentRunner(localConfigStore, app.getPath('userData'))
+  convexSession = new ConvexSession()
+  convexRepoStore = new ConvexRepoStore(convexSession, async () => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    return (await localConfigStore.readDeviceConfig()).workerId
+  })
+  agentRunner = new AgentRunner(
+    async (repoId) => {
+      if (!convexRepoStore) {
+        throw new Error('Convex repo store is unavailable.')
+      }
+
+      return convexRepoStore.getRepoForExecution(repoId)
+    },
+    app.getPath('userData')
+  )
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -283,6 +311,55 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.getVersions, () => getAppVersions())
   ipcMain.handle(IPC_CHANNELS.pickFolder, (event) => {
     return pickFolder(BrowserWindow.fromWebContents(event.sender))
+  })
+  ipcMain.handle(IPC_CHANNELS.setConvexSession, async (_, input) => {
+    if (!convexSession) {
+      throw new Error('Convex session store is unavailable.')
+    }
+
+    convexSession.set(input)
+  })
+  ipcMain.handle(IPC_CHANNELS.clearConvexSession, async () => {
+    convexSession?.clear()
+  })
+  ipcMain.handle(IPC_CHANNELS.getDeviceConfig, async () => {
+    if (!localConfigStore) {
+      throw new Error('Local config store is unavailable.')
+    }
+
+    return localConfigStore.readDeviceConfig()
+  })
+  ipcMain.handle(IPC_CHANNELS.createRemoteRepo, async (_, input) => {
+    if (!convexRepoStore) {
+      throw new Error('Convex repo store is unavailable.')
+    }
+
+    return convexRepoStore.createRepoFromFolder(input)
+  })
+  ipcMain.handle(IPC_CHANNELS.updateRemoteRepoSettings, async (_, input) => {
+    if (!convexRepoStore) {
+      throw new Error('Convex repo store is unavailable.')
+    }
+
+    return convexRepoStore.updateRepoSettings(input)
+  })
+  ipcMain.handle(IPC_CHANNELS.syncRepoStates, async () => {
+    if (!convexRepoStore) {
+      throw new Error('Convex repo store is unavailable.')
+    }
+
+    return convexRepoStore.syncRepoStates()
+  })
+  ipcMain.handle(IPC_CHANNELS.updateWorkerSettings, async (_, autoRunEnabled) => {
+    if (!convexRepoStore) {
+      throw new Error('Convex repo store is unavailable.')
+    }
+
+    if (typeof autoRunEnabled !== 'boolean') {
+      throw new Error('Invalid app settings.')
+    }
+
+    return convexRepoStore.updateWorkerSettings(autoRunEnabled)
   })
   ipcMain.handle(IPC_CHANNELS.getLocalConfig, async () => {
     if (!localConfigStore) {
@@ -324,16 +401,10 @@ app.whenReady().then(() => {
     return buildRepoSyncMetadata(await localConfigStore.read())
   })
   ipcMain.handle(IPC_CHANNELS.runWorkspaceScript, async (_, input) => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
-    }
-
     if (activeWorkspaceScriptRun) {
-      const currentConfig = await localConfigStore.read()
       const branchName = getStringInput(input, 'branchName')
 
       return {
-        config: currentConfig,
         selectedRepoId: null,
         result: {
           ok: false,
@@ -357,8 +428,8 @@ app.whenReady().then(() => {
     }
   })
   ipcMain.handle(IPC_CHANNELS.deleteWorkspace, async (_, input) => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
+    if (!convexRepoStore) {
+      throw new Error('Convex repo store is unavailable.')
     }
 
     const repoId = typeof input?.repoId === 'string' ? input.repoId.trim() : ''
@@ -367,9 +438,28 @@ app.whenReady().then(() => {
       throw new Error('Invalid workspace selection.')
     }
 
-    return deleteWorkspace({
-      localConfigStore,
-      repoId
+    const repo = await convexRepoStore.getRepoForExecution(repoId)
+    const localTrackedRepo = localConfigStore
+      ? (await localConfigStore.read()).repos.find((currentRepo) => currentRepo.id === repo.id)
+      : null
+    const repoWithLocalTracking = localTrackedRepo
+      ? {
+          ...repo,
+          sourceRepoPath: localTrackedRepo.sourceRepoPath,
+          workspaceProcesses: localTrackedRepo.workspaceProcesses
+        }
+      : repo
+
+    return deleteWorkspaceForRepo({
+      repo: repoWithLocalTracking,
+      softDeleteRepo: async () => {
+        await convexRepoStore!.softDeleteRepo(repo.id)
+        await localConfigStore?.softDeleteRepo(repo.id).catch(() => undefined)
+
+        return {
+          selectedRepoId: repo.sourceRepoId ?? null
+        }
+      }
     })
   })
   ipcMain.handle(IPC_CHANNELS.runAgent, async (event, input) => {

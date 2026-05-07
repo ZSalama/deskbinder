@@ -191,6 +191,29 @@ export async function deleteWorkspace({
     throw new Error('Selected workspace is no longer configured.')
   }
 
+  return await deleteWorkspaceForRepo({
+    repo,
+    softDeleteRepo: async () => {
+      const nextConfig = await localConfigStore.softDeleteRepo(repo.id)
+
+      return {
+        config: nextConfig,
+        selectedRepoId: selectNextRepoId(nextConfig.repos, repo.sourceRepoId)
+      }
+    }
+  })
+}
+
+export async function deleteWorkspaceForRepo({
+  repo,
+  softDeleteRepo
+}: {
+  repo: RepoSettings
+  softDeleteRepo: () => Promise<{
+    config?: DeleteWorkspaceResponse['config']
+    selectedRepoId: string | null
+  }>
+}): Promise<DeleteWorkspaceResponse> {
   const worktreeDetails = await inspectWorktreeRepo(repo.repoPath)
 
   if (worktreeDetails === null && !repo.sourceRepoPath && !repo.workspaceBranchName) {
@@ -296,8 +319,7 @@ export async function deleteWorkspace({
     warnings.push('Workspace branch could not be determined, so branch deletion was skipped.')
   }
 
-  const nextConfig = await localConfigStore.softDeleteRepo(repo.id)
-  const selectedRepoId = selectNextRepoId(nextConfig.repos, repo.sourceRepoId)
+  const softDeleteResult = await softDeleteRepo()
   const messageParts = [
     killedProcessCount > 0
       ? `Stopped ${killedProcessCount} related process${killedProcessCount === 1 ? '' : 'es'}`
@@ -312,9 +334,9 @@ export async function deleteWorkspace({
   }
 
   return {
-    config: nextConfig,
+    config: softDeleteResult.config,
     deletedRepoId: repo.id,
-    selectedRepoId,
+    selectedRepoId: softDeleteResult.selectedRepoId,
     summary: {
       branchDeleted,
       folderDeleted,
