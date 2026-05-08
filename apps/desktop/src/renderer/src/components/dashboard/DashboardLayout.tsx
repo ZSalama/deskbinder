@@ -141,7 +141,7 @@ function getInitialDesktopApiState(): DesktopApiState {
 }
 
 export function DashboardLayout(): React.JSX.Element {
-  const { getToken, isSignedIn } = useAuth()
+  const { getToken, isSignedIn, sessionId } = useAuth()
   const { user } = useUser()
   const { isAuthenticated } = useConvexAuth()
   const [{ api: desktopApi, error: initialBridgeError }] = useState(getInitialDesktopApiState)
@@ -157,6 +157,7 @@ export function DashboardLayout(): React.JSX.Element {
   const [isRunningWorkspaceScript, setIsRunningWorkspaceScript] = useState(false)
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
   const [bridgeError, setBridgeError] = useState<string | null>(initialBridgeError)
+  const [desktopConvexSessionKey, setDesktopConvexSessionKey] = useState<string | null>(null)
   const [repoSetupNotice, setRepoSetupNotice] = useState<RepoSetupNotice | null>(null)
   const [transcriptsByRepoId, setTranscriptsByRepoId] = useState<TranscriptsByRepoId>({})
   const [activeAgentRun, setActiveAgentRun] = useState<ActiveAgentRun | null>(null)
@@ -180,6 +181,12 @@ export function DashboardLayout(): React.JSX.Element {
     () => repos.find((repo) => repo.id === resolvedSelectedRepoId) ?? null,
     [repos, resolvedSelectedRepoId]
   )
+  const desktopConvexSessionTarget =
+    desktopApi && isSignedIn && convexUrl && sessionId ? `${convexUrl}:${sessionId}` : null
+  const isDesktopConvexSessionAvailable =
+    isAuthenticated &&
+    desktopConvexSessionTarget !== null &&
+    desktopConvexSessionKey === desktopConvexSessionTarget
   const { error: workerHeartbeatError } = useWorkerHeartbeat({
     deviceConfig,
     enabled: isAuthenticated,
@@ -188,7 +195,7 @@ export function DashboardLayout(): React.JSX.Element {
   const { error: repoMetadataSyncError } = useRepoStateSync({
     deviceConfig,
     desktopApi,
-    enabled: isAuthenticated
+    enabled: isDesktopConvexSessionAvailable
   })
   const handleRemoteBranchNotice = useCallback((notice: RepoSetupNotice) => {
     setRepoSetupNotice(notice)
@@ -197,14 +204,14 @@ export function DashboardLayout(): React.JSX.Element {
     useBranchRequestRunner({
       deviceConfig,
       desktopApi,
-      enabled: isAuthenticated,
+      enabled: isDesktopConvexSessionAvailable,
       onNotice: handleRemoteBranchNotice,
       onSelectedRepoId: setSelectedRepoId
     })
   const { activeJob: remoteAgentJob, error: remoteAgentJobRunnerError } = useRemoteAgentJobRunner({
     deviceConfig,
     desktopApi,
-    enabled: isAuthenticated,
+    enabled: isDesktopConvexSessionAvailable,
     onNotice: handleRemoteBranchNotice
   })
   const remoteAgentJobs = useQuery(
@@ -260,7 +267,7 @@ export function DashboardLayout(): React.JSX.Element {
   }, [desktopApi])
 
   useEffect(() => {
-    if (!desktopApi || !isSignedIn || !convexUrl) {
+    if (!desktopApi || !desktopConvexSessionTarget || !convexUrl) {
       void desktopApi?.clearConvexSession()
       return
     }
@@ -279,9 +286,11 @@ export function DashboardLayout(): React.JSX.Element {
           convexUrl,
           authToken
         })
+        setDesktopConvexSessionKey(desktopConvexSessionTarget)
         setBridgeError(null)
       } catch (error) {
         if (isActive) {
+          setDesktopConvexSessionKey(null)
           setBridgeError(
             error instanceof Error ? error.message : 'Unable to prepare Convex desktop session.'
           )
@@ -299,7 +308,7 @@ export function DashboardLayout(): React.JSX.Element {
       isActive = false
       window.clearInterval(intervalId)
     }
-  }, [desktopApi, getToken, isSignedIn])
+  }, [desktopApi, desktopConvexSessionTarget, getToken])
 
   useEffect(() => {
     if (!desktopApi) {

@@ -54,19 +54,31 @@ export function useBranchRequestRunner({
   const [activeRequest, setActiveRequest] = useState<BranchRequest | null>(null)
   const [error, setError] = useState<string | null>(null)
   const runningRequestIdRef = useRef<Id<'branchRequests'> | null>(null)
+  const lastSettledRequestIdRef = useRef<Id<'branchRequests'> | null>(null)
+  const isMountedRef = useRef(true)
+  const [queuePumpRevision, setQueuePumpRevision] = useState(0)
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!enabled || !desktopApi || !workerId || runningRequestIdRef.current) {
       return
     }
 
-    const request = queuedRequests?.[0] as BranchRequest | undefined
+    const request = queuedRequests?.find(
+      (queuedRequest) => queuedRequest.requestId !== lastSettledRequestIdRef.current
+    ) as BranchRequest | undefined
 
     if (!request) {
       return
     }
 
-    let isActive = true
     runningRequestIdRef.current = request.requestId
 
     const runRequest = async (): Promise<void> => {
@@ -80,7 +92,7 @@ export function useBranchRequestRunner({
           return
         }
 
-        if (isActive) {
+        if (isMountedRef.current) {
           setActiveRequest(request)
         }
 
@@ -106,7 +118,7 @@ export function useBranchRequestRunner({
           errorMessage: succeeded ? undefined : getFailureMessage(response)
         })
 
-        if (isActive) {
+        if (isMountedRef.current) {
           setError(succeeded ? null : getFailureMessage(response))
           onNotice(
             succeeded
@@ -134,7 +146,7 @@ export function useBranchRequestRunner({
           // The original failure is more useful to surface in the desktop UI.
         }
 
-        if (isActive) {
+        if (isMountedRef.current) {
           setError(message)
           onNotice({
             tone: 'error',
@@ -142,19 +154,17 @@ export function useBranchRequestRunner({
           })
         }
       } finally {
-        if (isActive) {
-          setActiveRequest(null)
-        }
-
+        lastSettledRequestIdRef.current = request.requestId
         runningRequestIdRef.current = null
+
+        if (isMountedRef.current) {
+          setActiveRequest(null)
+          setQueuePumpRevision((revision) => revision + 1)
+        }
       }
     }
 
     void runRequest()
-
-    return () => {
-      isActive = false
-    }
   }, [
     claimBranchRequest,
     completeBranchRequest,
@@ -162,6 +172,7 @@ export function useBranchRequestRunner({
     enabled,
     onNotice,
     onSelectedRepoId,
+    queuePumpRevision,
     queuedRequests,
     workerId
   ])
