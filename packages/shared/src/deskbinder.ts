@@ -113,15 +113,10 @@ export type LocalJobIndex = {
   updatedAt: number
 }
 
-export type AppSettings = {
-  autoRunEnabled: boolean
-}
-
 export type DeskbinderConfig = {
   workerId: string
   repos: RepoSettings[]
   jobs: LocalJobIndex[]
-  appSettings: AppSettings
 }
 
 export type CreateRepoInput = {

@@ -628,17 +628,6 @@ app.whenReady().then(() => {
 
     return convexRepoStore.syncRepoStates()
   })
-  ipcMain.handle(IPC_CHANNELS.updateWorkerSettings, async (_, autoRunEnabled) => {
-    if (!convexRepoStore) {
-      throw new Error('Convex repo store is unavailable.')
-    }
-
-    if (typeof autoRunEnabled !== 'boolean') {
-      throw new Error('Invalid app settings.')
-    }
-
-    return convexRepoStore.updateWorkerSettings(autoRunEnabled)
-  })
   ipcMain.handle(IPC_CHANNELS.getLocalConfig, async () => {
     if (!localConfigStore) {
       throw new Error('Local config store is unavailable.')
@@ -659,17 +648,6 @@ app.whenReady().then(() => {
     }
 
     return localConfigStore.updateRepo(repo)
-  })
-  ipcMain.handle(IPC_CHANNELS.updateAppSettings, async (_, autoRunEnabled) => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
-    }
-
-    if (typeof autoRunEnabled !== 'boolean') {
-      throw new Error('Invalid app settings.')
-    }
-
-    return localConfigStore.updateAppSettings(autoRunEnabled)
   })
   ipcMain.handle(IPC_CHANNELS.getRepoSyncMetadata, async () => {
     if (!localConfigStore) {

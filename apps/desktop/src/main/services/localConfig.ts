@@ -49,10 +49,7 @@ function createDefaultConfig(): DeskbinderConfig {
   return {
     workerId: randomUUID(),
     repos: [],
-    jobs: [],
-    appSettings: {
-      autoRunEnabled: false
-    }
+    jobs: []
   }
 }
 
@@ -359,21 +356,11 @@ function sanitizeConfig(value: unknown): DeskbinderConfig {
   const jobs = Array.isArray(record.jobs)
     ? record.jobs.map(sanitizeJobIndex).filter((job): job is LocalJobIndex => job !== null)
     : []
-  const appSettingsRecord =
-    record.appSettings && typeof record.appSettings === 'object'
-      ? (record.appSettings as Record<string, unknown>)
-      : null
 
   return {
     workerId,
     repos,
-    jobs,
-    appSettings: {
-      autoRunEnabled:
-        appSettingsRecord && typeof appSettingsRecord.autoRunEnabled === 'boolean'
-          ? appSettingsRecord.autoRunEnabled
-          : false
-    }
+    jobs
   }
 }
 
@@ -494,20 +481,6 @@ export class LocalConfigStore {
           agentExecutable: DEFAULT_AGENT_EXECUTABLE
         }
       ]
-    }
-
-    await this.write(nextConfig)
-    return nextConfig
-  }
-
-  async updateAppSettings(autoRunEnabled: boolean): Promise<DeskbinderConfig> {
-    const currentConfig = await this.read()
-    const nextConfig = {
-      ...currentConfig,
-      appSettings: {
-        ...currentConfig.appSettings,
-        autoRunEnabled
-      }
     }
 
     await this.write(nextConfig)

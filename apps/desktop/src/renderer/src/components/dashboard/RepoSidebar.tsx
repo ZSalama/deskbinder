@@ -3,7 +3,6 @@ import { ChevronDown, Folder, GitBranch, LogOut, Plus, Settings2, Workflow } fro
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import type { DashboardRepo } from './types'
 
@@ -12,13 +11,10 @@ type RepoSidebarProps = {
   accountImageUrl: string | null
   accountName: string
   isPickingFolder: boolean
-  lastPickedFolder: string | null
-  autoRunEnabled: boolean
   onNewWorkspace: (repo: DashboardRepo) => void
   onOpenSettings: (repo: DashboardRepo) => void
   onSelectRepo: (repoId: string) => void
   onSetupRepo: () => void
-  onToggleAutoRun: (nextValue: boolean) => void
   repos: DashboardRepo[]
   selectedRepoId: string | null
 }
@@ -93,14 +89,11 @@ export function RepoSidebar({
   accountEmail,
   accountImageUrl,
   accountName,
-  autoRunEnabled,
   isPickingFolder,
-  lastPickedFolder,
   onNewWorkspace,
   onOpenSettings,
   onSelectRepo,
   onSetupRepo,
-  onToggleAutoRun,
   repos,
   selectedRepoId
 }: RepoSidebarProps): React.JSX.Element {
@@ -177,20 +170,6 @@ export function RepoSidebar({
       </ScrollArea>
 
       <div className="space-y-3 border-t border-white/10 px-5 py-5">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-200">Auto run</p>
-            {lastPickedFolder ? (
-              <p className="truncate text-xs text-slate-500">{getPathBasename(lastPickedFolder)}</p>
-            ) : null}
-          </div>
-          <Switch
-            aria-label="Toggle auto run"
-            checked={autoRunEnabled}
-            onCheckedChange={onToggleAutoRun}
-          />
-        </div>
-
         <Button
           type="button"
           variant="outline"

@@ -46,7 +46,6 @@ type DesktopWorkerSummary = {
   workerId: string
   name: string
   status: 'online' | 'busy' | 'offline'
-  autoRunEnabled: boolean
   lastSeenAt: number | null
 }
 
@@ -1190,7 +1189,7 @@ function WorkspaceHeader({
     selectedRepo && selectedWorker ? (
       <div className="flex shrink-0 items-center gap-1.5" aria-label="Repository and worker status">
         <HeaderStatusIcon
-          detail={`${selectedWorker.name} - ${selectedWorkerStatus ?? 'Offline'} - heartbeat ${formatLastSeen(selectedWorker.lastSeenAt)} - auto run ${selectedWorker.autoRunEnabled ? 'enabled' : 'disabled'}`}
+          detail={`${selectedWorker.name} - ${selectedWorkerStatus ?? 'Offline'} - heartbeat ${formatLastSeen(selectedWorker.lastSeenAt)}`}
           icon={<Monitor className="size-4" />}
           label="Worker"
           tone={connected ? (selectedWorkerStatus === 'Busy' ? 'busy' : 'good') : 'muted'}

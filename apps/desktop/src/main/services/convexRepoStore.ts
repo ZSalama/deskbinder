@@ -302,18 +302,4 @@ export class ConvexRepoStore {
       localRepoId
     })
   }
-
-  async updateWorkerSettings(autoRunEnabled: boolean): Promise<{ autoRunEnabled: boolean }> {
-    const workerId = await this.getWorkerId()
-    const worker = await this.convexSession
-      .requireClient()
-      .mutation(api.workers.updateDesktopWorkerSettings, {
-        workerId,
-        autoRunEnabled
-      })
-
-    return {
-      autoRunEnabled: worker.autoRunEnabled
-    }
-  }
 }

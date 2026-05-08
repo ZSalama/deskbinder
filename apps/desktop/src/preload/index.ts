@@ -13,13 +13,9 @@ const api: DeskbinderApi = {
   updateRemoteRepoSettings: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateRemoteRepoSettings, input),
   syncRepoStates: () => ipcRenderer.invoke(IPC_CHANNELS.syncRepoStates),
-  updateWorkerSettings: (autoRunEnabled) =>
-    ipcRenderer.invoke(IPC_CHANNELS.updateWorkerSettings, autoRunEnabled),
   getLocalConfig: () => ipcRenderer.invoke(IPC_CHANNELS.getLocalConfig),
   createRepo: (input) => ipcRenderer.invoke(IPC_CHANNELS.createRepo, input),
   updateRepo: (repo) => ipcRenderer.invoke(IPC_CHANNELS.updateRepo, repo),
-  updateAppSettings: (autoRunEnabled) =>
-    ipcRenderer.invoke(IPC_CHANNELS.updateAppSettings, autoRunEnabled),
   getRepoSyncMetadata: () => ipcRenderer.invoke(IPC_CHANNELS.getRepoSyncMetadata),
   runWorkspaceScript: (input) => ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceScript, input),
   runWorkspaceScripts: (input) => ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceScripts, input),

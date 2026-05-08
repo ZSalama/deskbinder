@@ -148,7 +148,6 @@ export function DashboardLayout(): React.JSX.Element {
   const [deviceConfig, setDeviceConfig] = useState<LocalDeviceConfig | null>(null)
   const [isLoadingConfig, setIsLoadingConfig] = useState(() => desktopApi !== null)
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [isPickingFolder, setIsPickingFolder] = useState(false)
   const [draftPrompt, setDraftPrompt] = useState('')
   const [repoForSettings, setRepoForSettings] = useState<DashboardRepo | null>(null)
@@ -172,10 +171,6 @@ export function DashboardLayout(): React.JSX.Element {
     api.repos.listDesktopRepos,
     isAuthenticated && workerId ? { workerId } : 'skip'
   ) as DesktopRepoSummary[] | undefined
-  const worker = useQuery(
-    api.workers.getDesktopWorker,
-    isAuthenticated && workerId ? { workerId } : 'skip'
-  ) as { autoRunEnabled: boolean } | null | undefined
   const repos = useMemo(() => buildDashboardRepos(remoteRepos), [remoteRepos])
   const resolvedSelectedRepoId =
     selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
@@ -534,7 +529,6 @@ export function DashboardLayout(): React.JSX.Element {
       const result = await api.pickFolder()
 
       if (!result.canceled && result.path) {
-        setSelectedFolder(result.path)
         setRepoSetupNotice(null)
 
         try {
@@ -574,18 +568,6 @@ export function DashboardLayout(): React.JSX.Element {
       setRepoSetupNotice({
         tone: 'error',
         message: error instanceof Error ? error.message : 'Unable to save repo settings.'
-      })
-    }
-  }
-
-  async function handleToggleAutoRun(nextValue: boolean): Promise<void> {
-    try {
-      await getDesktopApi().updateWorkerSettings(nextValue)
-      setBridgeError(null)
-    } catch (error) {
-      setRepoSetupNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to update app settings.'
       })
     }
   }
@@ -889,14 +871,11 @@ export function DashboardLayout(): React.JSX.Element {
             accountEmail={user?.primaryEmailAddress?.emailAddress ?? 'unknown email'}
             accountName={user?.fullName ?? user?.username ?? 'Account'}
             accountImageUrl={user?.imageUrl ?? null}
-            autoRunEnabled={worker?.autoRunEnabled ?? false}
             isPickingFolder={isPickingFolder}
-            lastPickedFolder={selectedFolder}
             onOpenSettings={handleOpenSettings}
             onNewWorkspace={handleOpenRunWorkspaceDialogForRepo}
             onSelectRepo={setSelectedRepoId}
             onSetupRepo={() => void handlePickFolder()}
-            onToggleAutoRun={(nextValue) => void handleToggleAutoRun(nextValue)}
             repos={repos}
             selectedRepoId={resolvedSelectedRepoId}
           />

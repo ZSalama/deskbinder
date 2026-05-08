@@ -45,7 +45,6 @@ export default defineSchema({
     ownerTokenIdentifier: v.string(),
     workerId: v.string(),
     name: v.string(),
-    autoRunEnabled: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number()
   }).index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId']),

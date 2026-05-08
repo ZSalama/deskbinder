@@ -11,7 +11,6 @@ type CombinedDesktopWorker = {
   workerId: string
   name: string
   status: WorkerStatus
-  autoRunEnabled: boolean
   lastSeenAt: number | null
 }
 
@@ -60,7 +59,6 @@ function toCombinedDesktopWorker(
     workerId: worker.workerId,
     name: worker.name,
     status: heartbeat?.status ?? 'offline',
-    autoRunEnabled: worker.autoRunEnabled,
     lastSeenAt: heartbeat?.lastSeenAt ?? null
   }
 }
@@ -69,7 +67,6 @@ export const registerDesktopWorker = mutation({
   args: {
     workerId: v.string(),
     name: v.string(),
-    autoRunEnabled: v.optional(v.boolean()),
     status: workerStatusValidator
   },
   handler: async (ctx, args): Promise<CombinedDesktopWorker> => {
@@ -96,7 +93,6 @@ export const registerDesktopWorker = mutation({
         ownerTokenIdentifier,
         workerId: args.workerId,
         name: workerName,
-        autoRunEnabled: args.autoRunEnabled ?? false,
         createdAt: now,
         updatedAt: now
       })
@@ -169,33 +165,6 @@ export const heartbeatDesktopWorker = mutation({
         updatedAt: now
       })
     }
-
-    const updatedWorker = (await ctx.db.get(worker._id)) ?? worker
-
-    return toCombinedDesktopWorker(
-      updatedWorker,
-      await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
-    )
-  }
-})
-
-export const updateDesktopWorkerSettings = mutation({
-  args: {
-    workerId: v.string(),
-    autoRunEnabled: v.boolean()
-  },
-  handler: async (ctx, args): Promise<CombinedDesktopWorker> => {
-    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
-    const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
-
-    if (!worker) {
-      throw new Error('Worker is not registered.')
-    }
-
-    await ctx.db.patch(worker._id, {
-      autoRunEnabled: args.autoRunEnabled,
-      updatedAt: Date.now()
-    })
 
     const updatedWorker = (await ctx.db.get(worker._id)) ?? worker
 

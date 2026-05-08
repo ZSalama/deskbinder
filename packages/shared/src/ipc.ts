@@ -1,6 +1,5 @@
 import type {
   AgentRunEvent,
-  AppSettings,
   CancelAgentRunInput,
   CancelAgentRunResponse,
   ConvexSessionInput,
@@ -41,13 +40,9 @@ export interface DeskbinderApi {
   createRemoteRepo: (input: CreateRepoInput) => Promise<DesktopRepoSummary>
   updateRemoteRepoSettings: (input: UpdateRepoInput) => Promise<DesktopRepoSummary>
   syncRepoStates: () => Promise<DesktopRepoSummary[]>
-  updateWorkerSettings: (
-    autoRunEnabled: AppSettings['autoRunEnabled']
-  ) => Promise<{ autoRunEnabled: boolean }>
   getLocalConfig: () => Promise<DeskbinderConfig>
   createRepo: (input: CreateRepoInput) => Promise<DeskbinderConfig>
   updateRepo: (input: UpdateRepoInput) => Promise<DeskbinderConfig>
-  updateAppSettings: (autoRunEnabled: AppSettings['autoRunEnabled']) => Promise<DeskbinderConfig>
   getRepoSyncMetadata: () => Promise<RepoSyncMetadataResponse>
   runWorkspaceScript: (input: RunWorkspaceScriptInput) => Promise<RunWorkspaceScriptResponse>
   runWorkspaceScripts: (input: RunWorkspaceScriptsInput) => Promise<RunWorkspaceScriptsResponse>
