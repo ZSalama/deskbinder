@@ -2,7 +2,14 @@ import { app, shell, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } fr
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import type { AppVersions, FolderPickResult } from '@deskbinder/shared/ipc'
-import type { RunWorkspaceScriptResponse } from '@deskbinder/shared/deskbinder'
+import {
+  MAX_WORKSPACE_BATCH_COUNT,
+  type RepoSettings,
+  type RunWorkspaceScriptResponse,
+  type RunWorkspaceScriptsResponse,
+  type WorkspaceScriptRunResponse,
+  type WorkspaceScriptResult
+} from '@deskbinder/shared/deskbinder'
 import { LocalConfigStore } from './services/localConfig'
 import { createRendererServer, type RendererServer } from './services/rendererServer'
 import { deleteWorkspaceForRepo } from './services/deleteWorkspace'
@@ -77,7 +84,9 @@ let localConfigStore: LocalConfigStore | null = null
 let convexSession: ConvexSession | null = null
 let convexRepoStore: ConvexRepoStore | null = null
 let agentRunner: AgentRunner | null = null
-let activeWorkspaceScriptRun: Promise<RunWorkspaceScriptResponse> | null = null
+let activeWorkspaceScriptRun: Promise<
+  RunWorkspaceScriptResponse | RunWorkspaceScriptsResponse
+> | null = null
 let hasCompletedQuitCleanup = false
 let quitCleanupPromise: Promise<void> | null = null
 
@@ -154,78 +163,149 @@ async function cleanupBeforeQuit(): Promise<void> {
   }
 }
 
-async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScriptResponse> {
-  if (!convexRepoStore) {
-    throw new Error('Convex repo store is unavailable.')
+function buildWorkspaceScriptResultFailure(
+  branchName: string,
+  failureStep: string,
+  errorMessage: string
+): WorkspaceScriptResult {
+  return {
+    ok: false,
+    agentRunnable: false,
+    branchName,
+    failureStep,
+    errorMessage
   }
+}
 
+function buildWorkspaceScriptRunFailure({
+  branchName,
+  errorMessage,
+  failureStep,
+  index
+}: {
+  branchName: string
+  errorMessage: string
+  failureStep: string
+  index: number
+}): WorkspaceScriptRunResponse {
+  return {
+    index,
+    branchName,
+    selectedRepoId: null,
+    result: buildWorkspaceScriptResultFailure(branchName, failureStep, errorMessage)
+  }
+}
+
+function getWorkspaceBatchRunsInput(input: unknown):
+  | {
+      ok: true
+      repoId: string
+      workspaces: Array<{ branchName: string; scriptArgs?: string }>
+    }
+  | {
+      ok: false
+      branchName: string
+      errorMessage: string
+    } {
   const repoId = getStringInput(input, 'repoId')
   const branchName = getStringInput(input, 'branchName')
-  const defaultScriptArgsInput = getOptionalStringInput(input, 'defaultScriptArgs')
-  let sourceRepo
 
-  if ('errorMessage' in defaultScriptArgsInput) {
+  if (!input || typeof input !== 'object') {
     return {
-      selectedRepoId: null,
-      result: {
-        ok: false,
-        agentRunnable: false,
-        branchName,
-        failureStep: 'input_validation',
-        errorMessage: defaultScriptArgsInput.errorMessage
-      }
+      ok: false,
+      branchName,
+      errorMessage: 'Invalid workspace batch input.'
     }
   }
 
-  try {
-    sourceRepo = await convexRepoStore.getRepoForExecution(repoId)
-  } catch {
+  const workspaces = (input as Record<string, unknown>)['workspaces']
+
+  if (!Array.isArray(workspaces)) {
     return {
-      selectedRepoId: null,
-      result: {
-        ok: false,
-        agentRunnable: false,
-        branchName,
-        failureStep: 'repo_lookup',
-        errorMessage: 'Selected repo is no longer configured.'
-      }
+      ok: false,
+      branchName,
+      errorMessage: 'Workspace batch is required.'
     }
   }
 
-  if (defaultScriptArgsInput.provided) {
-    try {
-      sourceRepo = desktopRepoToRepoSettings(
-        await convexRepoStore.updateRepoSettings({
-          id: sourceRepo.id,
-          name: sourceRepo.name,
-          workspaceScriptPath: sourceRepo.workspaceScriptPath,
-          defaultScriptArgs: defaultScriptArgsInput.value,
-          agentExecutable: sourceRepo.agentExecutable
-        })
-      )
-    } catch (error) {
+  if (workspaces.length < 1 || workspaces.length > MAX_WORKSPACE_BATCH_COUNT) {
+    return {
+      ok: false,
+      branchName,
+      errorMessage: 'Create between 1 and 5 workspaces at a time.'
+    }
+  }
+
+  const normalizedWorkspaces = workspaces.map((workspace) => {
+    if (!workspace || typeof workspace !== 'object') {
+      return null
+    }
+
+    const record = workspace as Record<string, unknown>
+    const workspaceBranchName =
+      typeof record.branchName === 'string' ? record.branchName.trim() : ''
+    const workspaceScriptArgs =
+      typeof record.scriptArgs === 'string' ? record.scriptArgs : undefined
+
+    return {
+      branchName: workspaceBranchName,
+      scriptArgs: workspaceScriptArgs
+    }
+  })
+
+  if (normalizedWorkspaces.some((workspace) => !workspace || !workspace.branchName)) {
+    return {
+      ok: false,
+      branchName,
+      errorMessage: 'Every workspace needs a branch name.'
+    }
+  }
+
+  const branchNames = new Set<string>()
+
+  for (const workspace of normalizedWorkspaces) {
+    if (!workspace) {
+      continue
+    }
+
+    if (branchNames.has(workspace.branchName)) {
       return {
-        selectedRepoId: sourceRepo.id,
-        result: {
-          ok: false,
-          agentRunnable: false,
-          branchName,
-          failureStep: 'repo_update',
-          errorMessage:
-            error instanceof Error ? error.message : 'Default script args could not be saved.'
-        }
+        ok: false,
+        branchName: workspace.branchName,
+        errorMessage: 'Branch names must be unique.'
       }
     }
+
+    branchNames.add(workspace.branchName)
   }
 
+  return {
+    ok: true,
+    repoId,
+    workspaces: normalizedWorkspaces as Array<{ branchName: string; scriptArgs?: string }>
+  }
+}
+
+async function runAndRegisterWorkspace({
+  branchName,
+  index,
+  scriptArgs,
+  sourceRepo
+}: {
+  branchName: string
+  index: number
+  scriptArgs?: string
+  sourceRepo: RepoSettings
+}): Promise<WorkspaceScriptRunResponse> {
   const result = await runWorkspaceScript({
     branchName,
-    repo: sourceRepo
+    repo: sourceRepo,
+    scriptArgs
   })
 
   if (result.ok && result.agentRunnable && result.workspacePath) {
     try {
-      const registration = await convexRepoStore.registerWorkspaceRepo({
+      const registration = await convexRepoStore!.registerWorkspaceRepo({
         sourceRepo,
         workspacePath: result.workspacePath,
         workspaceName: result.workspaceName,
@@ -252,11 +332,15 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
       })
 
       return {
+        index,
+        branchName: result.branchName,
         selectedRepoId: registration.localRepoId,
         result
       }
     } catch (error) {
       return {
+        index,
+        branchName: result.branchName,
         selectedRepoId: sourceRepo.id,
         result: {
           ...result,
@@ -273,8 +357,139 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
   }
 
   return {
+    index,
+    branchName: result.branchName,
     selectedRepoId: sourceRepo.id,
     result
+  }
+}
+
+async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScriptResponse> {
+  if (!convexRepoStore) {
+    throw new Error('Convex repo store is unavailable.')
+  }
+
+  const repoId = getStringInput(input, 'repoId')
+  const branchName = getStringInput(input, 'branchName')
+  const defaultScriptArgsInput = getOptionalStringInput(input, 'defaultScriptArgs')
+  let sourceRepo: RepoSettings
+
+  if ('errorMessage' in defaultScriptArgsInput) {
+    return {
+      selectedRepoId: null,
+      result: buildWorkspaceScriptResultFailure(
+        branchName,
+        'input_validation',
+        defaultScriptArgsInput.errorMessage
+      )
+    }
+  }
+
+  try {
+    sourceRepo = await convexRepoStore.getRepoForExecution(repoId)
+  } catch {
+    return {
+      selectedRepoId: null,
+      result: buildWorkspaceScriptResultFailure(
+        branchName,
+        'repo_lookup',
+        'Selected repo is no longer configured.'
+      )
+    }
+  }
+
+  if (defaultScriptArgsInput.provided) {
+    try {
+      sourceRepo = desktopRepoToRepoSettings(
+        await convexRepoStore.updateRepoSettings({
+          id: sourceRepo.id,
+          name: sourceRepo.name,
+          workspaceScriptPath: sourceRepo.workspaceScriptPath,
+          defaultScriptArgs: defaultScriptArgsInput.value,
+          agentExecutable: sourceRepo.agentExecutable
+        })
+      )
+    } catch (error) {
+      return {
+        selectedRepoId: sourceRepo.id,
+        result: buildWorkspaceScriptResultFailure(
+          branchName,
+          'repo_update',
+          error instanceof Error ? error.message : 'Default script args could not be saved.'
+        )
+      }
+    }
+  }
+
+  const response = await runAndRegisterWorkspace({
+    branchName,
+    index: 0,
+    sourceRepo
+  })
+
+  return {
+    selectedRepoId: response.selectedRepoId,
+    result: response.result
+  }
+}
+
+async function handleRunWorkspaceScripts(input: unknown): Promise<RunWorkspaceScriptsResponse> {
+  if (!convexRepoStore) {
+    throw new Error('Convex repo store is unavailable.')
+  }
+
+  const inputResult = getWorkspaceBatchRunsInput(input)
+
+  if (!inputResult.ok) {
+    return {
+      selectedRepoId: null,
+      results: [
+        buildWorkspaceScriptRunFailure({
+          index: 0,
+          branchName: inputResult.branchName,
+          failureStep: 'input_validation',
+          errorMessage: inputResult.errorMessage
+        })
+      ]
+    }
+  }
+
+  let sourceRepo: RepoSettings
+
+  try {
+    sourceRepo = await convexRepoStore.getRepoForExecution(inputResult.repoId)
+  } catch {
+    return {
+      selectedRepoId: null,
+      results: inputResult.workspaces.map((workspace, index) =>
+        buildWorkspaceScriptRunFailure({
+          index,
+          branchName: workspace.branchName,
+          failureStep: 'repo_lookup',
+          errorMessage: 'Selected repo is no longer configured.'
+        })
+      )
+    }
+  }
+
+  const results: WorkspaceScriptRunResponse[] = []
+
+  for (const [index, workspace] of inputResult.workspaces.entries()) {
+    results.push(
+      await runAndRegisterWorkspace({
+        index,
+        branchName: workspace.branchName,
+        scriptArgs: workspace.scriptArgs,
+        sourceRepo
+      })
+    )
+  }
+
+  return {
+    selectedRepoId:
+      results.find((response) => response.result.ok && response.selectedRepoId)?.selectedRepoId ??
+      sourceRepo.id,
+    results
   }
 }
 
@@ -358,16 +573,13 @@ app.whenReady().then(() => {
 
     return (await localConfigStore.readDeviceConfig()).workerId
   })
-  agentRunner = new AgentRunner(
-    async (repoId) => {
-      if (!convexRepoStore) {
-        throw new Error('Convex repo store is unavailable.')
-      }
+  agentRunner = new AgentRunner(async (repoId) => {
+    if (!convexRepoStore) {
+      throw new Error('Convex repo store is unavailable.')
+    }
 
-      return convexRepoStore.getRepoForExecution(repoId)
-    },
-    app.getPath('userData')
-  )
+    return convexRepoStore.getRepoForExecution(repoId)
+  }, app.getPath('userData'))
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -483,6 +695,41 @@ app.whenReady().then(() => {
     }
 
     const workspaceScriptRun = handleRunWorkspaceScript(input)
+    activeWorkspaceScriptRun = workspaceScriptRun
+
+    try {
+      return await workspaceScriptRun
+    } finally {
+      if (activeWorkspaceScriptRun === workspaceScriptRun) {
+        activeWorkspaceScriptRun = null
+      }
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.runWorkspaceScripts, async (_, input) => {
+    if (activeWorkspaceScriptRun) {
+      const inputResult = getWorkspaceBatchRunsInput(input)
+      let branchName: string
+
+      if (inputResult.ok) {
+        branchName = inputResult.workspaces[0]?.branchName ?? ''
+      } else {
+        branchName = inputResult.branchName
+      }
+
+      return {
+        selectedRepoId: null,
+        results: [
+          buildWorkspaceScriptRunFailure({
+            index: 0,
+            branchName,
+            failureStep: WORKSPACE_SCRIPT_CONCURRENCY_FAILURE_STEP,
+            errorMessage: 'A workspace script is already running.'
+          })
+        ]
+      }
+    }
+
+    const workspaceScriptRun = handleRunWorkspaceScripts(input)
     activeWorkspaceScriptRun = workspaceScriptRun
 
     try {

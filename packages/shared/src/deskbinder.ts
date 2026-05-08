@@ -1,5 +1,7 @@
 export type AgentExecutable = 'codex' | 'claude'
 
+export const MAX_WORKSPACE_BATCH_COUNT = 5
+
 export type TrackedWorkspaceProcess = {
   pid: number
   startTimeTicks: number
@@ -147,6 +149,16 @@ export type RunWorkspaceScriptInput = {
   defaultScriptArgs?: string
 }
 
+export type WorkspaceScriptRunInput = {
+  branchName: string
+  scriptArgs?: string
+}
+
+export type RunWorkspaceScriptsInput = {
+  repoId: string
+  workspaces: WorkspaceScriptRunInput[]
+}
+
 export type DeleteWorkspaceInput = {
   repoId: string
 }
@@ -221,6 +233,19 @@ export type AgentRunEvent =
 export type RunWorkspaceScriptResponse = {
   config?: DeskbinderConfig
   result: WorkspaceScriptResult
+  selectedRepoId: string | null
+}
+
+export type WorkspaceScriptRunResponse = {
+  index: number
+  branchName: string
+  result: WorkspaceScriptResult
+  selectedRepoId: string | null
+}
+
+export type RunWorkspaceScriptsResponse = {
+  config?: DeskbinderConfig
+  results: WorkspaceScriptRunResponse[]
   selectedRepoId: string | null
 }
 

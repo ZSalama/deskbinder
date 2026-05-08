@@ -133,6 +133,7 @@ export default defineSchema({
     targetWorkerId: v.string(),
     sourceLocalRepoId: v.string(),
     branchName: v.string(),
+    scriptArgs: v.optional(v.string()),
     status: branchRequestStatus,
     createdAt: v.number(),
     updatedAt: v.number(),

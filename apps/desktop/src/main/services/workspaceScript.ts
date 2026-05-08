@@ -13,6 +13,7 @@ const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
 type WorkspaceScriptRunOptions = {
   branchName: string
   repo: RepoSettings
+  scriptArgs?: string
 }
 
 function sanitizeString(value: unknown): string | undefined {
@@ -51,7 +52,7 @@ function sanitizeNumberRecord(value: unknown): Record<string, number> | undefine
   return Object.fromEntries(entries) as Record<string, number>
 }
 
-function parseArgString(input: string | undefined): string[] {
+function parseArgString(input: string | undefined, label = 'Script args'): string[] {
   if (!input?.trim()) {
     return []
   }
@@ -99,7 +100,7 @@ function parseArgString(input: string | undefined): string[] {
   }
 
   if (escaping || quote) {
-    throw new Error('Default script args contain unmatched quotes or escapes.')
+    throw new Error(`${label} contain unmatched quotes or escapes.`)
   }
 
   if (current.length > 0) {
@@ -255,7 +256,8 @@ async function validateScriptPath(
 
 export async function runWorkspaceScript({
   branchName,
-  repo
+  repo,
+  scriptArgs
 }: WorkspaceScriptRunOptions): Promise<WorkspaceScriptResult> {
   const normalizedBranchName = sanitizeString(branchName)
 
@@ -271,10 +273,15 @@ export async function runWorkspaceScript({
   try {
     await validateBranchName(repo.repoPath, normalizedBranchName)
     const executablePath = await validateScriptPath(repo.repoPath, repo.workspaceScriptPath)
-    const scriptArgs = [normalizedBranchName, ...parseArgString(repo.defaultScriptArgs)]
+    const rawScriptArgs = scriptArgs === undefined ? repo.defaultScriptArgs : scriptArgs
+    const scriptArgLabel = scriptArgs === undefined ? 'Default script args' : 'Script args'
+    const resolvedScriptArgs = [
+      normalizedBranchName,
+      ...parseArgString(rawScriptArgs, scriptArgLabel)
+    ]
 
     return await new Promise<WorkspaceScriptResult>((resolveResult) => {
-      const child = spawn(executablePath, scriptArgs, {
+      const child = spawn(executablePath, resolvedScriptArgs, {
         cwd: repo.repoPath,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe']

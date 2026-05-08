@@ -1,6 +1,6 @@
 import { api } from '@deskbinder/convex-client'
 import type { Id } from '@deskbinder/convex-client'
-import type { LocalDeviceConfig, RunWorkspaceScriptResponse } from '@deskbinder/shared/deskbinder'
+import type { LocalDeviceConfig, RunWorkspaceScriptsResponse } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useMutation, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
@@ -10,6 +10,7 @@ type BranchRequest = {
   targetWorkerId: string
   sourceLocalRepoId: string
   branchName: string
+  scriptArgs?: string
 }
 
 type UseBranchRequestRunnerOptions = {
@@ -29,8 +30,11 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to run remote branch request.'
 }
 
-function getFailureMessage(response: RunWorkspaceScriptResponse): string {
-  return response.result.errorMessage ?? 'Workspace script failed.'
+function getFailureMessage(response: RunWorkspaceScriptsResponse): string {
+  return (
+    response.results.find((result) => !result.result.ok)?.result.errorMessage ??
+    'Workspace script failed.'
+  )
 }
 
 export function useBranchRequestRunner({
@@ -80,28 +84,35 @@ export function useBranchRequestRunner({
           setActiveRequest(request)
         }
 
-        const response = await desktopApi.runWorkspaceScript({
+        const response = await desktopApi.runWorkspaceScripts({
           repoId: claimedRequest.sourceLocalRepoId,
-          branchName: claimedRequest.branchName
+          workspaces: [
+            {
+              branchName: claimedRequest.branchName,
+              scriptArgs: claimedRequest.scriptArgs
+            }
+          ]
         })
+        const firstResult = response.results[0]
+        const succeeded = Boolean(firstResult?.result.ok)
 
         onSelectedRepoId(response.selectedRepoId ?? claimedRequest.sourceLocalRepoId)
 
         await completeBranchRequest({
           requestId: claimedRequest.requestId,
           workerId,
-          ok: response.result.ok,
+          ok: succeeded,
           resultLocalRepoId: response.selectedRepoId ?? undefined,
-          errorMessage: response.result.ok ? undefined : getFailureMessage(response)
+          errorMessage: succeeded ? undefined : getFailureMessage(response)
         })
 
         if (isActive) {
-          setError(response.result.ok ? null : getFailureMessage(response))
+          setError(succeeded ? null : getFailureMessage(response))
           onNotice(
-            response.result.ok
+            succeeded
               ? {
                   tone: 'success',
-                  message: `Created ${response.result.branchName}.`
+                  message: `Created ${firstResult?.result.branchName ?? claimedRequest.branchName}.`
                 }
               : {
                   tone: 'error',

@@ -29,6 +29,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { ConvexProviders } from './providers'
 
 const WORKER_ONLINE_THRESHOLD_MS = 90_000
+const MAX_WORKSPACE_BATCH_COUNT = 5
+const WORKSPACE_COUNTS = Array.from({ length: MAX_WORKSPACE_BATCH_COUNT }, (_, index) => index + 1)
+
+type WorkspaceDraft = {
+  branchName: string
+  scriptArgs: string
+}
+
+type WorkspaceRequestInput = {
+  branchName: string
+  scriptArgs: string
+}
 
 type DesktopWorkerSummary = {
   workerId: string
@@ -104,6 +116,37 @@ type RemoteAgentJobSummary = {
 
 function joinClassNames(...classNames: Array<string | false | null | undefined>): string {
   return classNames.filter(Boolean).join(' ')
+}
+
+function resolveWorkspaceDrafts(
+  drafts: WorkspaceDraft[],
+  count: number
+): { ok: true; workspaces: WorkspaceRequestInput[] } | { ok: false; errorMessage: string } {
+  const firstBranchName = drafts[0]?.branchName.trim() ?? ''
+
+  if (!firstBranchName) {
+    return { ok: false, errorMessage: 'Branch name is required.' }
+  }
+
+  const branchNames = new Set<string>()
+  const workspaces = drafts.slice(0, count).map((draft, index) => {
+    const branchName = draft.branchName.trim() || `${firstBranchName}-${index + 1}`
+
+    return {
+      branchName,
+      scriptArgs: draft.scriptArgs
+    }
+  })
+
+  for (const workspace of workspaces) {
+    if (branchNames.has(workspace.branchName)) {
+      return { ok: false, errorMessage: 'Branch names must be unique.' }
+    }
+
+    branchNames.add(workspace.branchName)
+  }
+
+  return { ok: true, workspaces }
 }
 
 function formatLastSeen(lastSeenAt: number | null): string {
@@ -487,7 +530,7 @@ function RemoteDashboard({
   viewerName: string | null
   workers: DesktopWorkerSummary[] | null
 }): React.JSX.Element {
-  const createBranchRequest = useMutation(api.branchRequests.createBranchRequest)
+  const createBranchRequests = useMutation(api.branchRequests.createBranchRequests)
   const createAgentJob = useMutation(api.agentJobs.createAgentJob)
   const answerHumanInputRequest = useMutation(api.agentJobs.answerHumanInputRequest)
   const [repoForBranchRequest, setRepoForBranchRequest] = useState<DesktopRepoSummary | null>(null)
@@ -530,7 +573,7 @@ function RemoteDashboard({
     !activeAgentJob &&
     !isSubmittingAgentJob
 
-  async function handleCreateBranchRequest(branchName: string): Promise<void> {
+  async function handleCreateBranchRequest(workspaces: WorkspaceRequestInput[]): Promise<void> {
     const sourceRepo = repoForBranchRequest
 
     if (!sourceRepo) {
@@ -540,14 +583,14 @@ function RemoteDashboard({
     setIsRequestingBranch(true)
 
     try {
-      await createBranchRequest({
+      await createBranchRequests({
         targetWorkerId: sourceRepo.workerId,
         sourceLocalRepoId: sourceRepo.localRepoId,
-        branchName
+        requests: workspaces
       })
       setRemoteNotice({
         tone: 'success',
-        message: `Queued ${branchName.trim()} for ${sourceRepo.name}.`
+        message: `Queued ${workspaces.length} workspace requests for ${sourceRepo.name}.`
       })
       setRepoForBranchRequest(null)
     } catch (error) {
@@ -691,7 +734,7 @@ function RemoteDashboard({
             setRepoForBranchRequest(null)
           }
         }}
-        onSubmit={(branchName) => void handleCreateBranchRequest(branchName)}
+        onSubmit={(workspaces) => void handleCreateBranchRequest(workspaces)}
         open={repoForBranchRequest !== null}
         repo={repoForBranchRequest}
       />
@@ -962,7 +1005,7 @@ function BranchRequestDialog({
 }: {
   isSubmitting: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (branchName: string) => void
+  onSubmit: (workspaces: WorkspaceRequestInput[]) => void
   open: boolean
   repo: DesktopRepoSummary | null
 }): React.JSX.Element | null {
@@ -988,47 +1031,113 @@ function BranchRequestDialogContent({
 }: {
   isSubmitting: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (branchName: string) => void
+  onSubmit: (workspaces: WorkspaceRequestInput[]) => void
   repo: DesktopRepoSummary
 }): React.JSX.Element {
-  const [branchName, setBranchName] = useState('')
+  const [workspaceCount, setWorkspaceCount] = useState(1)
+  const [workspaceDrafts, setWorkspaceDrafts] = useState<WorkspaceDraft[]>(() =>
+    WORKSPACE_COUNTS.map(() => ({
+      branchName: '',
+      scriptArgs: repo.defaultScriptArgs ?? ''
+    }))
+  )
+  const [formError, setFormError] = useState<string | null>(null)
+
+  function updateWorkspaceDraft(index: number, patch: Partial<WorkspaceDraft>): void {
+    setWorkspaceDrafts((currentDrafts) =>
+      currentDrafts.map((draft, draftIndex) =>
+        draftIndex === index ? { ...draft, ...patch } : draft
+      )
+    )
+  }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
     event.preventDefault()
-    const trimmedBranchName = branchName.trim()
+    const result = resolveWorkspaceDrafts(workspaceDrafts, workspaceCount)
 
-    if (trimmedBranchName) {
-      onSubmit(trimmedBranchName)
+    if (!result.ok) {
+      setFormError(result.errorMessage)
+      return
     }
+
+    setFormError(null)
+    onSubmit(result.workspaces)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/62 px-4 py-6 backdrop-blur-sm">
       <form
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-white/10 bg-slate-950/96 text-slate-100 shadow-2xl"
+        className="max-h-[calc(100vh-3rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/96 text-slate-100 shadow-2xl"
         onSubmit={handleSubmit}
       >
         <div className="border-b border-white/10 px-6 py-5">
           <h2 className="text-lg font-semibold text-white">New branch</h2>
           <p className="mt-2 text-sm leading-6 text-slate-300/78">
-            Queue a branch request for the desktop app to run against {repo.name}.
+            Queue workspace requests for the desktop app to run against {repo.name}.
           </p>
         </div>
 
         <div className="space-y-5 px-6 py-5">
           <label className="block space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
-              Branch Name
+              Workspace Count
             </span>
-            <input
-              autoFocus
-              className="h-11 w-full rounded-lg border border-white/10 bg-white/5 px-3 font-mono text-[13px] text-slate-100 outline-none placeholder:text-slate-500 focus:border-blue-300/60 disabled:cursor-not-allowed disabled:opacity-60"
+            <select
+              className="h-11 w-32 rounded-lg border border-white/10 bg-slate-950 px-3 text-sm text-slate-100 outline-none focus:border-blue-300/60 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSubmitting}
-              onChange={(event) => setBranchName(event.target.value)}
-              placeholder="agent/test"
-              value={branchName}
-            />
+              onChange={(event) => setWorkspaceCount(Number(event.target.value))}
+              value={workspaceCount}
+            >
+              {WORKSPACE_COUNTS.map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </select>
           </label>
+
+          <div className="space-y-3">
+            {workspaceDrafts.slice(0, workspaceCount).map((draft, index) => (
+              <div
+                className="grid gap-3 rounded-lg border border-white/10 bg-white/[0.025] p-3 md:grid-cols-2"
+                key={index}
+              >
+                <label className="block space-y-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+                    Branch {index + 1}
+                  </span>
+                  <input
+                    autoFocus={index === 0}
+                    className="h-11 w-full rounded-lg border border-white/10 bg-white/5 px-3 font-mono text-[13px] text-slate-100 outline-none placeholder:text-slate-500 focus:border-blue-300/60 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSubmitting}
+                    onChange={(event) => {
+                      setFormError(null)
+                      updateWorkspaceDraft(index, { branchName: event.target.value })
+                    }}
+                    placeholder={index === 0 ? 'agent/test' : 'auto-generated'}
+                    value={draft.branchName}
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+                    Script Args
+                  </span>
+                  <input
+                    className="h-11 w-full rounded-lg border border-white/10 bg-white/5 px-3 font-mono text-[13px] text-slate-100 outline-none placeholder:text-slate-500 focus:border-blue-300/60 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSubmitting}
+                    onChange={(event) => {
+                      setFormError(null)
+                      updateWorkspaceDraft(index, { scriptArgs: event.target.value })
+                    }}
+                    placeholder="--port 3001 --env dev"
+                    value={draft.scriptArgs}
+                  />
+                </label>
+              </div>
+            ))}
+          </div>
+
+          {formError ? <p className="text-sm text-red-300">{formError}</p> : null}
 
           <div className="rounded-lg border border-white/8 bg-white/[0.025] px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
@@ -1049,10 +1158,14 @@ function BranchRequestDialogContent({
           </button>
           <button
             className="inline-flex h-10 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
-            disabled={isSubmitting || !branchName.trim()}
+            disabled={isSubmitting || !workspaceDrafts[0]?.branchName.trim()}
             type="submit"
           >
-            {isSubmitting ? 'Queueing...' : 'Queue Branch'}
+            {isSubmitting
+              ? 'Queueing...'
+              : workspaceCount === 1
+                ? 'Queue Branch'
+                : 'Queue Branches'}
           </button>
         </div>
       </form>

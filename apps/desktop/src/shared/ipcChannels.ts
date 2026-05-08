@@ -15,6 +15,7 @@ export const IPC_CHANNELS = {
   updateAppSettings: 'v1.config.updateAppSettings',
   getRepoSyncMetadata: 'v1.repo.syncMetadata.get',
   runWorkspaceScript: 'v1.workspace.runScript',
+  runWorkspaceScripts: 'v1.workspace.runScripts',
   deleteWorkspace: 'v1.workspace.delete',
   runAgent: 'v1.agent.run',
   cancelAgent: 'v1.agent.cancel',

@@ -5,7 +5,8 @@ import type {
   AgentRunEvent,
   DesktopRepoSummary,
   LocalDeviceConfig,
-  UpdateRepoInput
+  UpdateRepoInput,
+  WorkspaceScriptRunInput
 } from '@deskbinder/shared/deskbinder'
 import type { DeskbinderApi } from '@deskbinder/shared/ipc'
 import { useConvexAuth, useMutation, useQuery } from 'convex/react'
@@ -438,29 +439,31 @@ export function DashboardLayout(): React.JSX.Element {
 
       if (localJob && workerId) {
         localJobByRunId.current.delete(completedEvent.runId)
-        void (completedEvent.status === 'interrupted'
-          ? interruptAgentJob({
-              jobId: localJob.jobId,
-              attemptId: localJob.attemptId,
-              workerId,
-              runId: completedEvent.runId,
-              codexThreadId: completedEvent.codexThreadId,
-              promptText:
-                completedEvent.humanInputPrompt ??
-                completedEvent.lastMessage ??
-                'Codex needs human input before it can continue.',
-              resultSummary: completedEvent.lastMessage
-            })
-          : completeAgentJob({
-              jobId: localJob.jobId,
-              attemptId: localJob.attemptId,
-              workerId,
-              status: completedEvent.status,
-              exitCode: completedEvent.exitCode,
-              signal: completedEvent.signal,
-              errorMessage: completedEvent.errorMessage,
-              resultSummary: completedEvent.lastMessage
-            })).catch(() => {
+        void (
+          completedEvent.status === 'interrupted'
+            ? interruptAgentJob({
+                jobId: localJob.jobId,
+                attemptId: localJob.attemptId,
+                workerId,
+                runId: completedEvent.runId,
+                codexThreadId: completedEvent.codexThreadId,
+                promptText:
+                  completedEvent.humanInputPrompt ??
+                  completedEvent.lastMessage ??
+                  'Codex needs human input before it can continue.',
+                resultSummary: completedEvent.lastMessage
+              })
+            : completeAgentJob({
+                jobId: localJob.jobId,
+                attemptId: localJob.attemptId,
+                workerId,
+                status: completedEvent.status,
+                exitCode: completedEvent.exitCode,
+                signal: completedEvent.signal,
+                errorMessage: completedEvent.errorMessage,
+                resultSummary: completedEvent.lastMessage
+              })
+        ).catch(() => {
           setRepoSetupNotice({
             tone: 'error',
             message: 'Codex finished locally, but its Convex job summary could not be saved.'
@@ -628,12 +631,10 @@ export function DashboardLayout(): React.JSX.Element {
     setIsRunWorkspaceDialogOpen(true)
   }
 
-  async function handleRunWorkspaceScript({
-    branchName,
-    defaultScriptArgs
+  async function handleRunWorkspaceScripts({
+    workspaces
   }: {
-    branchName: string
-    defaultScriptArgs?: string
+    workspaces: WorkspaceScriptRunInput[]
   }): Promise<void> {
     const targetRepo = repoForWorkspaceScript ?? activeRepo
 
@@ -644,24 +645,37 @@ export function DashboardLayout(): React.JSX.Element {
     setIsRunningWorkspaceScript(true)
 
     try {
-      const response = await getDesktopApi().runWorkspaceScript({
+      const response = await getDesktopApi().runWorkspaceScripts({
         repoId: targetRepo.id,
-        branchName,
-        defaultScriptArgs
+        workspaces
       })
       const nextSelectedRepoId = response.selectedRepoId ?? targetRepo.id
+      const successfulResults = response.results.filter((result) => result.result.ok)
+      const firstFailure = response.results.find((result) => !result.result.ok)
 
       setSelectedRepoId(nextSelectedRepoId)
       setRepoForWorkspaceScript(null)
       setIsRunWorkspaceDialogOpen(false)
-      setRepoSetupNotice(
-        response.result.ok
-          ? null
-          : {
-              tone: 'error',
-              message: response.result.errorMessage ?? 'Workspace script failed.'
-            }
-      )
+      setRepoSetupNotice(() => {
+        if (successfulResults.length === response.results.length) {
+          return {
+            tone: 'success',
+            message: `Created ${successfulResults.length} of ${response.results.length} workspaces.`
+          }
+        }
+
+        if (successfulResults.length > 0) {
+          return {
+            tone: 'warning',
+            message: `Created ${successfulResults.length} of ${response.results.length} workspaces.`
+          }
+        }
+
+        return {
+          tone: 'error',
+          message: firstFailure?.result.errorMessage ?? 'Workspace script failed.'
+        }
+      })
       setBridgeError(null)
     } catch (error) {
       setRepoSetupNotice({
@@ -1017,7 +1031,7 @@ export function DashboardLayout(): React.JSX.Element {
             setRepoForWorkspaceScript(null)
           }
         }}
-        onSubmit={(input) => void handleRunWorkspaceScript(input)}
+        onSubmit={(input) => void handleRunWorkspaceScripts(input)}
         open={isRunWorkspaceDialogOpen}
         repo={repoForWorkspaceScript ?? activeRepo}
       />

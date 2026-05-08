@@ -7,6 +7,7 @@ type BranchRequestSummary = {
   targetWorkerId: string
   sourceLocalRepoId: string
   branchName: string
+  scriptArgs?: string
   status: 'queued' | 'claimed' | 'succeeded' | 'failed'
   createdAt: number
   updatedAt: number
@@ -15,6 +16,9 @@ type BranchRequestSummary = {
   resultLocalRepoId?: string
   errorMessage?: string
 }
+
+const MAX_BRANCH_REQUESTS_PER_BATCH = 5
+const SCRIPT_ARGS_MAX_CHARACTERS = 4_000
 
 async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise<string> {
   const identity = await ctx.auth.getUserIdentity()
@@ -78,12 +82,25 @@ function sanitizeBranchName(branchName: string): string {
   return trimmedBranchName
 }
 
+function sanitizeScriptArgs(scriptArgs: string | undefined): string | undefined {
+  if (scriptArgs === undefined) {
+    return undefined
+  }
+
+  if (scriptArgs.length > SCRIPT_ARGS_MAX_CHARACTERS) {
+    throw new Error('Script args are too long.')
+  }
+
+  return scriptArgs
+}
+
 function toBranchRequestSummary(request: Doc<'branchRequests'>): BranchRequestSummary {
   return {
     requestId: request._id,
     targetWorkerId: request.targetWorkerId,
     sourceLocalRepoId: request.sourceLocalRepoId,
     branchName: request.branchName,
+    scriptArgs: request.scriptArgs,
     status: request.status,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
@@ -98,7 +115,8 @@ export const createBranchRequest = mutation({
   args: {
     targetWorkerId: v.string(),
     sourceLocalRepoId: v.string(),
-    branchName: v.string()
+    branchName: v.string(),
+    scriptArgs: v.optional(v.string())
   },
   handler: async (ctx, args): Promise<BranchRequestSummary> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
@@ -129,6 +147,7 @@ export const createBranchRequest = mutation({
       targetWorkerId: args.targetWorkerId,
       sourceLocalRepoId: args.sourceLocalRepoId,
       branchName: sanitizeBranchName(args.branchName),
+      ...(args.scriptArgs !== undefined ? { scriptArgs: sanitizeScriptArgs(args.scriptArgs) } : {}),
       status: 'queued',
       createdAt: now,
       updatedAt: now
@@ -140,6 +159,86 @@ export const createBranchRequest = mutation({
     }
 
     return toBranchRequestSummary(request)
+  }
+})
+
+export const createBranchRequests = mutation({
+  args: {
+    targetWorkerId: v.string(),
+    sourceLocalRepoId: v.string(),
+    requests: v.array(
+      v.object({
+        branchName: v.string(),
+        scriptArgs: v.string()
+      })
+    )
+  },
+  handler: async (ctx, args): Promise<BranchRequestSummary[]> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+
+    if (args.requests.length < 1 || args.requests.length > MAX_BRANCH_REQUESTS_PER_BATCH) {
+      throw new Error('Create between 1 and 5 workspaces at a time.')
+    }
+
+    const worker = await getDesktopWorker(ctx, ownerTokenIdentifier, args.targetWorkerId)
+
+    if (!worker) {
+      throw new Error('Desktop worker is not registered.')
+    }
+
+    const sourceRepo = await getDesktopRepo(
+      ctx,
+      ownerTokenIdentifier,
+      args.targetWorkerId,
+      args.sourceLocalRepoId
+    )
+
+    if (!sourceRepo) {
+      throw new Error('Source repository is unavailable.')
+    }
+
+    if (sourceRepo.sourceLocalRepoId) {
+      throw new Error('New branches must be created from the parent repository.')
+    }
+
+    const normalizedRequests = args.requests.map((request) => ({
+      branchName: sanitizeBranchName(request.branchName),
+      scriptArgs: sanitizeScriptArgs(request.scriptArgs) ?? ''
+    }))
+    const branchNames = new Set<string>()
+
+    for (const request of normalizedRequests) {
+      if (branchNames.has(request.branchName)) {
+        throw new Error('Branch names must be unique.')
+      }
+
+      branchNames.add(request.branchName)
+    }
+
+    const now = Date.now()
+    const requests: Array<Doc<'branchRequests'>> = []
+
+    for (const request of normalizedRequests) {
+      const requestId = await ctx.db.insert('branchRequests', {
+        ownerTokenIdentifier,
+        targetWorkerId: args.targetWorkerId,
+        sourceLocalRepoId: args.sourceLocalRepoId,
+        branchName: request.branchName,
+        scriptArgs: request.scriptArgs,
+        status: 'queued',
+        createdAt: now,
+        updatedAt: now
+      })
+      const branchRequest = await ctx.db.get(requestId)
+
+      if (!branchRequest) {
+        throw new Error('Unable to create branch requests.')
+      }
+
+      requests.push(branchRequest)
+    }
+
+    return requests.map(toBranchRequestSummary)
   }
 })
 
