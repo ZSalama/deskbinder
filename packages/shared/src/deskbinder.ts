@@ -144,6 +144,7 @@ export type ConvexSessionInput = {
 export type RunWorkspaceScriptInput = {
   repoId: string
   branchName: string
+  defaultScriptArgs?: string
 }
 
 export type DeleteWorkspaceInput = {

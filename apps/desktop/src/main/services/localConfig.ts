@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { basename, dirname, isAbsolute, normalize, resolve } from 'node:path'
-import { constants } from 'node:fs'
 import { access, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import type { App } from 'electron'
@@ -19,7 +18,7 @@ import type {
 const CONFIG_FILENAME = 'deskbinder.json'
 const DEV_CONFIG_DIRECTORY = '.deskbinder'
 const DEFAULT_AGENT_EXECUTABLE: AgentExecutable = 'codex'
-const DEFAULT_WORKSPACE_SCRIPT_PATH = 'ainewworkspace'
+const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
 const VALID_AGENT_EXECUTABLES = new Set<AgentExecutable>(['codex', 'claude'])
 const execFileAsync = promisify(execFile)
 
@@ -187,10 +186,10 @@ function sanitizeUpdateRepoInput(value: unknown): UpdateRepoInput | null {
   }
 }
 
-async function validateRepoRelativeWorkspaceScriptPath(
+function validateRepoRelativeWorkspaceScriptPath(
   repoPath: string,
   workspaceScriptPath: string
-): Promise<string> {
+): string {
   const normalizedWorkspaceScriptPath = sanitizeWorkspaceScriptPath(workspaceScriptPath)
 
   if (!normalizedWorkspaceScriptPath) {
@@ -201,24 +200,11 @@ async function validateRepoRelativeWorkspaceScriptPath(
     throw new Error('Workspace script path must be repo-relative.')
   }
 
-  const normalizedRepoPath = await canonicalizePath(repoPath)
+  const normalizedRepoPath = normalize(repoPath)
   const candidatePath = normalize(resolve(normalizedRepoPath, normalizedWorkspaceScriptPath))
-  let resolvedScriptPath: string
 
-  try {
-    resolvedScriptPath = normalize(await realpath(candidatePath))
-  } catch {
-    throw new Error('Workspace script path does not exist.')
-  }
-
-  if (!isPathWithin(normalizedRepoPath, resolvedScriptPath)) {
+  if (!isPathWithin(normalizedRepoPath, candidatePath)) {
     throw new Error('Workspace script path must stay within the repo root.')
-  }
-
-  try {
-    await access(resolvedScriptPath, constants.X_OK)
-  } catch {
-    throw new Error('Workspace script path must point to an executable file.')
   }
 
   return normalizedWorkspaceScriptPath
@@ -456,7 +442,7 @@ export class LocalConfigStore {
     const nextRepo: RepoSettings = {
       ...existingRepo,
       name: sanitizedInput.name,
-      workspaceScriptPath: await validateRepoRelativeWorkspaceScriptPath(
+      workspaceScriptPath: validateRepoRelativeWorkspaceScriptPath(
         existingRepo.repoPath,
         sanitizedInput.workspaceScriptPath
       ),

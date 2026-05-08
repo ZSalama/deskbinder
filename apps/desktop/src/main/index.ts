@@ -14,7 +14,7 @@ import { AgentRunner } from './services/agentRunner'
 import { buildRepoSyncMetadata } from './services/repoSyncMetadata'
 import { runWorkspaceScript } from './services/workspaceScript'
 import { ConvexSession } from './services/convexSession'
-import { ConvexRepoStore } from './services/convexRepoStore'
+import { ConvexRepoStore, desktopRepoToRepoSettings } from './services/convexRepoStore'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
 
@@ -90,6 +90,32 @@ function getStringInput(input: unknown, key: string): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function getOptionalStringInput(
+  input: unknown,
+  key: string
+):
+  | { provided: false }
+  | { provided: true; value: string | undefined }
+  | { provided: true; errorMessage: string } {
+  if (!input || typeof input !== 'object' || !(key in input)) {
+    return { provided: false }
+  }
+
+  const value = (input as Record<string, unknown>)[key]
+
+  if (value === undefined || value === null) {
+    return { provided: true, value: undefined }
+  }
+
+  if (typeof value !== 'string') {
+    return { provided: true, errorMessage: 'Default script args must be text.' }
+  }
+
+  const trimmedValue = value.trim()
+
+  return { provided: true, value: trimmedValue || undefined }
+}
+
 async function getProductionRendererUrl(): Promise<URL> {
   if (!rendererServer) {
     rendererServer = await createRendererServer()
@@ -135,7 +161,21 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
 
   const repoId = getStringInput(input, 'repoId')
   const branchName = getStringInput(input, 'branchName')
+  const defaultScriptArgsInput = getOptionalStringInput(input, 'defaultScriptArgs')
   let sourceRepo
+
+  if ('errorMessage' in defaultScriptArgsInput) {
+    return {
+      selectedRepoId: null,
+      result: {
+        ok: false,
+        agentRunnable: false,
+        branchName,
+        failureStep: 'input_validation',
+        errorMessage: defaultScriptArgsInput.errorMessage
+      }
+    }
+  }
 
   try {
     sourceRepo = await convexRepoStore.getRepoForExecution(repoId)
@@ -148,6 +188,32 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
         branchName,
         failureStep: 'repo_lookup',
         errorMessage: 'Selected repo is no longer configured.'
+      }
+    }
+  }
+
+  if (defaultScriptArgsInput.provided) {
+    try {
+      sourceRepo = desktopRepoToRepoSettings(
+        await convexRepoStore.updateRepoSettings({
+          id: sourceRepo.id,
+          name: sourceRepo.name,
+          workspaceScriptPath: sourceRepo.workspaceScriptPath,
+          defaultScriptArgs: defaultScriptArgsInput.value,
+          agentExecutable: sourceRepo.agentExecutable
+        })
+      )
+    } catch (error) {
+      return {
+        selectedRepoId: sourceRepo.id,
+        result: {
+          ok: false,
+          agentRunnable: false,
+          branchName,
+          failureStep: 'repo_update',
+          errorMessage:
+            error instanceof Error ? error.message : 'Default script args could not be saved.'
+        }
       }
     }
   }

@@ -172,7 +172,11 @@ function toFinalAgentStatus(status: DesktopCompletionStatus): AgentJobStatus {
 }
 
 function isRunnableRepoState(repoState: Doc<'desktopRepoStates'> | null): boolean {
-  return Boolean(repoState?.isValid || repoState?.readinessStatus === 'dirty')
+  return Boolean(
+    repoState?.isValid ||
+    repoState?.readinessStatus === 'dirty' ||
+    repoState?.readinessStatus === 'missing_script'
+  )
 }
 
 async function getPendingHumanInputRequestSummary(

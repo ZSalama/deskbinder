@@ -628,7 +628,13 @@ export function DashboardLayout(): React.JSX.Element {
     setIsRunWorkspaceDialogOpen(true)
   }
 
-  async function handleRunWorkspaceScript(branchName: string): Promise<void> {
+  async function handleRunWorkspaceScript({
+    branchName,
+    defaultScriptArgs
+  }: {
+    branchName: string
+    defaultScriptArgs?: string
+  }): Promise<void> {
     const targetRepo = repoForWorkspaceScript ?? activeRepo
 
     if (!targetRepo) {
@@ -640,7 +646,8 @@ export function DashboardLayout(): React.JSX.Element {
     try {
       const response = await getDesktopApi().runWorkspaceScript({
         repoId: targetRepo.id,
-        branchName
+        branchName,
+        defaultScriptArgs
       })
       const nextSelectedRepoId = response.selectedRepoId ?? targetRepo.id
 
@@ -1010,7 +1017,7 @@ export function DashboardLayout(): React.JSX.Element {
             setRepoForWorkspaceScript(null)
           }
         }}
-        onSubmit={(branchName) => void handleRunWorkspaceScript(branchName)}
+        onSubmit={(input) => void handleRunWorkspaceScript(input)}
         open={isRunWorkspaceDialogOpen}
         repo={repoForWorkspaceScript ?? activeRepo}
       />

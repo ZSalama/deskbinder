@@ -61,8 +61,12 @@ function createReadinessResult(
   }
 }
 
-function isRunnableReadinessStatus(readinessStatus: RepoReadinessStatus): boolean {
-  return readinessStatus === 'ready' || readinessStatus === 'dirty'
+function isValidReadinessStatus(readinessStatus: RepoReadinessStatus): boolean {
+  return (
+    readinessStatus === 'ready' ||
+    readinessStatus === 'dirty' ||
+    readinessStatus === 'missing_script'
+  )
 }
 
 async function validateWorkspaceScript(
@@ -182,7 +186,7 @@ export async function buildRepoSyncMetadata(
         name: repo.name,
         currentBranch: readiness.currentBranch,
         workspaceBranchName: repo.workspaceBranchName,
-        isValid: isRunnableReadinessStatus(readiness.readinessStatus),
+        isValid: isValidReadinessStatus(readiness.readinessStatus),
         readinessStatus: readiness.readinessStatus,
         readinessMessage: readiness.readinessMessage,
         workerId: config.workerId,
@@ -197,11 +201,7 @@ export async function buildRepoSyncMetadata(
   }
 }
 
-export async function buildRepoStateMetadata({
-  repos
-}: {
-  repos: DesktopRepoSummary[]
-}): Promise<
+export async function buildRepoStateMetadata({ repos }: { repos: DesktopRepoSummary[] }): Promise<
   Array<{
     localRepoId: string
     currentBranch: string
@@ -229,7 +229,7 @@ export async function buildRepoStateMetadata({
       return {
         localRepoId: repo.localRepoId,
         currentBranch: readiness.currentBranch,
-        isValid: isRunnableReadinessStatus(readiness.readinessStatus),
+        isValid: isValidReadinessStatus(readiness.readinessStatus),
         readinessStatus: readiness.readinessStatus,
         readinessMessage: readiness.readinessMessage,
         lastSeenAt

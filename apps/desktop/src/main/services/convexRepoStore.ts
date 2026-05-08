@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { constants } from 'node:fs'
-import { access, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { basename, isAbsolute, normalize, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type {
@@ -16,7 +15,7 @@ import { buildRepoStateMetadata } from './repoSyncMetadata'
 import type { ConvexSession } from './convexSession'
 
 const DEFAULT_AGENT_EXECUTABLE: AgentExecutable = 'codex'
-const DEFAULT_WORKSPACE_SCRIPT_PATH = 'ainewworkspace'
+const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
 const VALID_AGENT_EXECUTABLES = new Set<AgentExecutable>(['codex', 'claude'])
 const execFileAsync = promisify(execFile)
 
@@ -126,10 +125,10 @@ async function resolveRepoRoot(
   return repoRootPath
 }
 
-async function validateRepoRelativeWorkspaceScriptPath(
+function validateRepoRelativeWorkspaceScriptPath(
   repoPath: string,
   workspaceScriptPath: string
-): Promise<string> {
+): string {
   const normalizedWorkspaceScriptPath = sanitizeWorkspaceScriptPath(workspaceScriptPath)
 
   if (!normalizedWorkspaceScriptPath) {
@@ -140,24 +139,11 @@ async function validateRepoRelativeWorkspaceScriptPath(
     throw new Error('Workspace script path must be repo-relative.')
   }
 
-  const normalizedRepoPath = await canonicalizePath(repoPath)
+  const normalizedRepoPath = normalize(repoPath)
   const candidatePath = normalize(resolve(normalizedRepoPath, normalizedWorkspaceScriptPath))
-  let resolvedScriptPath: string
 
-  try {
-    resolvedScriptPath = normalize(await realpath(candidatePath))
-  } catch {
-    throw new Error('Workspace script path does not exist.')
-  }
-
-  if (!isPathWithin(normalizedRepoPath, resolvedScriptPath)) {
+  if (!isPathWithin(normalizedRepoPath, candidatePath)) {
     throw new Error('Workspace script path must stay within the repo root.')
-  }
-
-  try {
-    await access(resolvedScriptPath, constants.X_OK)
-  } catch {
-    throw new Error('Workspace script path must point to an executable file.')
   }
 
   return normalizedWorkspaceScriptPath
@@ -205,7 +191,7 @@ export class ConvexRepoStore {
     const normalizedRepoPath = await resolveRepoRoot(repoPath, {
       allowWorktree: false
     })
-    const workspaceScriptPath = await validateRepoRelativeWorkspaceScriptPath(
+    const workspaceScriptPath = validateRepoRelativeWorkspaceScriptPath(
       normalizedRepoPath,
       DEFAULT_WORKSPACE_SCRIPT_PATH
     )
@@ -236,7 +222,7 @@ export class ConvexRepoStore {
       allowWorktree: true,
       requireWorktree: true
     })
-    const workspaceScriptPath = await validateRepoRelativeWorkspaceScriptPath(
+    const workspaceScriptPath = validateRepoRelativeWorkspaceScriptPath(
       sourceRepo.repoPath,
       sourceRepo.workspaceScriptPath || DEFAULT_WORKSPACE_SCRIPT_PATH
     )
@@ -264,7 +250,7 @@ export class ConvexRepoStore {
     }
 
     const repo = await this.getRepoSummary(localRepoId)
-    const validatedWorkspaceScriptPath = await validateRepoRelativeWorkspaceScriptPath(
+    const validatedWorkspaceScriptPath = validateRepoRelativeWorkspaceScriptPath(
       repo.repoPath,
       workspaceScriptPath
     )

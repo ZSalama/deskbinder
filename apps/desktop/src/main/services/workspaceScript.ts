@@ -8,7 +8,7 @@ import type { RepoSettings, WorkspaceScriptResult } from '@deskbinder/shared/des
 const execFileAsync = promisify(execFile)
 const SCRIPT_TIMEOUT_MS = 10 * 60 * 1000
 const MAX_OUTPUT_BYTES = 256 * 1024
-const DEFAULT_WORKSPACE_SCRIPT_PATH = 'ainewworkspace'
+const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
 
 type WorkspaceScriptRunOptions = {
   branchName: string

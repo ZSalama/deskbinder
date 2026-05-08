@@ -12,13 +12,13 @@ import { Input } from '@/components/ui/input'
 import type { DashboardRepo } from './types'
 
 function getWorkspaceScriptPath(repo: DashboardRepo): string {
-  return repo.workspaceScriptPath.trim() || `${repo.repoPath}/ainewworkspace`
+  return repo.workspaceScriptPath.trim() || `${repo.repoPath}/new_workspace`
 }
 
 type RunWorkspaceDialogProps = {
   isSubmitting: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (branchName: string) => void
+  onSubmit: (input: { branchName: string; defaultScriptArgs?: string }) => void
   open: boolean
   repo: DashboardRepo | null
 }
@@ -76,9 +76,13 @@ function RunWorkspaceDialogForm({
   repo
 }: RunWorkspaceDialogProps & { repo: DashboardRepo }): React.JSX.Element {
   const [branchName, setBranchName] = useState('')
+  const [defaultScriptArgs, setDefaultScriptArgs] = useState(repo.defaultScriptArgs ?? '')
 
   function handleSubmit(): void {
-    onSubmit(branchName.trim())
+    onSubmit({
+      branchName: branchName.trim(),
+      defaultScriptArgs: defaultScriptArgs.trim()
+    })
   }
 
   return (
@@ -87,7 +91,7 @@ function RunWorkspaceDialogForm({
         <DialogHeader className="border-b border-white/10 px-6 py-5">
           <DialogTitle className="text-lg text-white">New workspace</DialogTitle>
           <DialogDescription className="text-slate-300/78">
-            Enter the branch name to pass as the first argument to the configured workspace script.
+            Set the branch name and default arguments for the configured workspace script.
           </DialogDescription>
         </DialogHeader>
 
@@ -112,21 +116,31 @@ function RunWorkspaceDialogForm({
             />
           </label>
 
+          <label className="block space-y-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
+              Default Script Args
+            </span>
+            <Input
+              className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
+              disabled={isSubmitting}
+              onChange={(event) => setDefaultScriptArgs(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleSubmit()
+                }
+              }}
+              placeholder="--port 3001 --env dev"
+              value={defaultScriptArgs}
+            />
+          </label>
+
           <div className="space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
               Script Path
             </span>
             <code className="block rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[12px] text-slate-200">
               {getWorkspaceScriptPath(repo)}
-            </code>
-          </div>
-
-          <div className="space-y-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
-              Default Script Args
-            </span>
-            <code className="block rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-[12px] text-slate-200">
-              {repo.defaultScriptArgs || 'No default args configured'}
             </code>
           </div>
         </div>

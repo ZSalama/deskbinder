@@ -149,7 +149,9 @@ function getReadinessLabel(status: DesktopRepoSummary['readinessStatus']): strin
 }
 
 function isRunnableRepo(repo: DesktopRepoSummary | null): boolean {
-  return Boolean(repo?.isValid || repo?.readinessStatus === 'dirty')
+  return Boolean(
+    repo?.isValid || repo?.readinessStatus === 'dirty' || repo?.readinessStatus === 'missing_script'
+  )
 }
 
 function getWorkerDisplayStatus(worker: DesktopWorkerSummary, now: number): DisplayWorkerStatus {

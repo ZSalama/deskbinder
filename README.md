@@ -12,7 +12,7 @@ Deskbinder now lives in a small pnpm workspace so the desktop shell and web app 
 
 ## Workspace Bootstrap Scripts
 
-Deskbinder supports running repo-owned workspace bootstrap scripts such as `ainewworkspace`.
+Deskbinder supports running repo-owned workspace bootstrap scripts such as `new_workspace`.
 
 These scripts are intentionally treated as trusted, user-provided code. Deskbinder validates where the configured script lives and how it is invoked, but it does not attempt to sandbox or neutralize the behavior of the script itself.
 

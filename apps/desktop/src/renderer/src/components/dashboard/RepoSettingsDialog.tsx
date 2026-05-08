@@ -151,7 +151,7 @@ function RepoSettingsDialogForm({
             <Input
               className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
               onChange={(event) => setDraftWorkspaceScriptPath(event.target.value)}
-              placeholder="ainewworkspace"
+              placeholder="new_workspace"
               value={draftWorkspaceScriptPath}
             />
           </label>
