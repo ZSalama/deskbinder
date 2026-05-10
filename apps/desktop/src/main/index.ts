@@ -138,15 +138,13 @@ async function cleanupBeforeQuit(): Promise<void> {
   }
 
   if (localConfigStore) {
-    const reposWithTrackedProcesses = (await localConfigStore.read()).repos.filter(
-      (repo) => !repo.deleted
-    )
-    const repoIdsToClear = reposWithTrackedProcesses
+    const trackedWorkspaces = (await localConfigStore.read()).trackedWorkspaces
+    const repoIdsToClear = trackedWorkspaces
       .filter((repo) => (repo.workspaceProcesses?.length ?? 0) > 0)
-      .map((repo) => repo.id)
+      .map((repo) => repo.repoId)
 
     await Promise.all(
-      reposWithTrackedProcesses.map(async (repo) => {
+      trackedWorkspaces.map(async (repo) => {
         await terminateTrackedWorkspaceProcesses(repo.repoPath, repo.workspaceProcesses)
       })
     )
@@ -317,14 +315,9 @@ async function runAndRegisterWorkspace({
         )
       )
 
-      await localConfigStore?.trackWorkspaceRepo({
-        id: registration.localRepoId,
-        name: registration.name,
+      await localConfigStore?.trackWorkspace({
+        repoId: registration.localRepoId,
         repoPath: registration.repoPath,
-        workspaceScriptPath: registration.workspaceScriptPath,
-        defaultScriptArgs: registration.defaultScriptArgs,
-        agentExecutable: registration.agentExecutable,
-        sourceRepoId: sourceRepo.id,
         sourceRepoPath: sourceRepo.repoPath,
         workspaceBranchName: registration.workspaceBranchName,
         workspaceProcesses
@@ -596,7 +589,6 @@ app.whenReady().then(() => {
 
     convexSession.set(input)
     await convexRepoStore.registerWorker()
-    await convexRepoStore.importLocalRepoConfigs((await localConfigStore.read()).repos)
     await convexRepoStore.syncRepoStates()
   })
   ipcMain.handle(IPC_CHANNELS.clearConvexSession, async () => {
@@ -705,12 +697,15 @@ app.whenReady().then(() => {
 
     const repo = await convexRepoStore.getRepoForExecution(repoId)
     const localTrackedRepo = localConfigStore
-      ? (await localConfigStore.read()).repos.find((currentRepo) => currentRepo.id === repo.id)
+      ? (await localConfigStore.read()).trackedWorkspaces.find(
+          (currentRepo) => currentRepo.repoId === repo.id
+        )
       : null
     const repoWithLocalTracking = localTrackedRepo
       ? {
           ...repo,
           sourceRepoPath: localTrackedRepo.sourceRepoPath,
+          workspaceBranchName: localTrackedRepo.workspaceBranchName ?? repo.workspaceBranchName,
           workspaceProcesses: localTrackedRepo.workspaceProcesses
         }
       : repo
@@ -719,7 +714,7 @@ app.whenReady().then(() => {
       repo: repoWithLocalTracking,
       softDeleteRepo: async () => {
         await convexRepoStore!.softDeleteRepo(repo.id)
-        await localConfigStore?.softDeleteRepo(repo.id).catch(() => undefined)
+        await localConfigStore?.forgetTrackedWorkspace(repo.id).catch(() => undefined)
 
         return {
           selectedRepoId: repo.sourceRepoId ?? null

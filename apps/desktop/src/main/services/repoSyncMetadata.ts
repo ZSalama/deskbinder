@@ -4,12 +4,9 @@ import { access, realpath } from 'node:fs/promises'
 import { isAbsolute, normalize, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type {
-  DeskbinderConfig,
   DesktopRepoSummary,
   RepoReadinessStatus,
-  RepoSettings,
-  RepoSyncMetadata,
-  RepoSyncMetadataResponse
+  RepoSettings
 } from '@deskbinder/shared/deskbinder'
 
 const execFileAsync = promisify(execFile)
@@ -186,36 +183,6 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
   }
 
   return createReadinessResult('ready', 'Ready for cloud jobs.', currentBranch)
-}
-
-export async function buildRepoSyncMetadata(
-  config: DeskbinderConfig
-): Promise<RepoSyncMetadataResponse> {
-  const lastSeenAt = Date.now()
-  const activeRepos = config.repos.filter((repo) => !repo.deleted)
-  const repos = await Promise.all(
-    activeRepos.map(async (repo): Promise<RepoSyncMetadata> => {
-      const readiness = await inspectRepoReadiness(repo)
-
-      return {
-        localRepoId: repo.id,
-        sourceLocalRepoId: repo.sourceRepoId,
-        name: repo.name,
-        currentBranch: readiness.currentBranch,
-        workspaceBranchName: repo.workspaceBranchName,
-        isValid: isValidReadinessStatus(readiness.readinessStatus),
-        readinessStatus: readiness.readinessStatus,
-        readinessMessage: readiness.readinessMessage,
-        workerId: config.workerId,
-        lastSeenAt
-      }
-    })
-  )
-
-  return {
-    workerId: config.workerId,
-    repos
-  }
 }
 
 export async function buildRepoStateMetadata({ repos }: { repos: DesktopRepoSummary[] }): Promise<

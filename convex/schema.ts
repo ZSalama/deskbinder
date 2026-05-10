@@ -60,28 +60,6 @@ export default defineSchema({
     .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])
     .index('by_desktopWorkerId', ['desktopWorkerId']),
 
-  desktopRepos: defineTable({
-    ownerTokenIdentifier: v.string(),
-    workerId: v.string(),
-    localRepoId: v.string(),
-    sourceLocalRepoId: v.optional(v.string()),
-    name: v.string(),
-    currentBranch: v.string(),
-    workspaceBranchName: v.optional(v.string()),
-    isValid: v.boolean(),
-    readinessStatus: repoReadinessStatus,
-    readinessMessage: v.optional(v.string()),
-    lastSeenAt: v.number(),
-    createdAt: v.number(),
-    updatedAt: v.number()
-  })
-    .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])
-    .index('by_ownerTokenIdentifier_and_workerId_and_localRepoId', [
-      'ownerTokenIdentifier',
-      'workerId',
-      'localRepoId'
-    ]),
-
   desktopRepoConfigs: defineTable({
     ownerTokenIdentifier: v.string(),
     workerId: v.string(),

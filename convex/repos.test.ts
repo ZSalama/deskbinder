@@ -46,6 +46,22 @@ async function createRepo(
 }
 
 describe('desktop repo config ownership', () => {
+  test('creates a repo for a registered worker', async () => {
+    const t = createTestBackend()
+    await registerWorker(t, 'worker-a')
+
+    const repo = await createRepo(t, 'worker-a')
+
+    expect(repo).toMatchObject({
+      workerId: 'worker-a',
+      localRepoId: 'repo-1',
+      name: 'Repo One',
+      repoPath: '/workspace/repo-one',
+      workspaceScriptPath: 'new_workspace',
+      agentExecutable: 'codex'
+    })
+  })
+
   test('lists account repo configs with worker-scoped readiness', async () => {
     const t = createTestBackend()
     await registerWorker(t, 'worker-a')
@@ -139,35 +155,19 @@ describe('desktop repo config ownership', () => {
     ).rejects.toThrow('already configured')
   })
 
-  test('imports a legacy repo by updating the existing account path', async () => {
+  test('rejects duplicate active repo ids account-wide', async () => {
     const t = createTestBackend()
     await registerWorker(t, 'worker-a')
     await registerWorker(t, 'worker-b')
     await createRepo(t, 'worker-a')
 
-    await t.mutation(api.repos.importDesktopRepoConfigs, {
-      workerId: 'worker-b',
-      repos: [
-        {
-          localRepoId: 'legacy-local-id',
-          name: 'Imported Name',
-          repoPath: '/workspace/repo-one',
-          workspaceScriptPath: 'scripts/new_workspace',
-          agentExecutable: 'claude'
-        }
-      ]
-    })
-
-    const repos = await t.query(api.repos.listDesktopRepos, {
-      workerId: 'worker-b'
-    })
-    expect(repos).toHaveLength(1)
-    expect(repos[0]).toMatchObject({
-      localRepoId: 'repo-1',
-      name: 'Imported Name',
-      workspaceScriptPath: 'scripts/new_workspace',
-      agentExecutable: 'claude'
-    })
+    await expect(
+      createRepo(t, 'worker-b', {
+        localRepoId: 'repo-1',
+        name: 'Repo Duplicate',
+        repoPath: '/workspace/repo-duplicate'
+      })
+    ).rejects.toThrow('Repository id is already configured.')
   })
 
   test('soft-delete hides the repo for all workers', async () => {

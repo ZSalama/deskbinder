@@ -8,6 +8,14 @@ export type TrackedWorkspaceProcess = {
   cwdPath?: string
 }
 
+export type TrackedWorkspace = {
+  repoId: string
+  repoPath: string
+  sourceRepoPath?: string
+  workspaceBranchName?: string
+  workspaceProcesses?: TrackedWorkspaceProcess[]
+}
+
 export type RepoSettings = {
   id: string
   name: string
@@ -29,24 +37,6 @@ export type RepoReadinessStatus =
   | 'missing_script'
   | 'missing_repo'
   | 'error'
-
-export type RepoSyncMetadata = {
-  localRepoId: string
-  sourceLocalRepoId?: string
-  name: string
-  currentBranch: string
-  workspaceBranchName?: string
-  isValid: boolean
-  readinessStatus: RepoReadinessStatus
-  readinessMessage?: string
-  workerId: string
-  lastSeenAt: number
-}
-
-export type RepoSyncMetadataResponse = {
-  workerId: string
-  repos: RepoSyncMetadata[]
-}
 
 export type DesktopRepoSummary = {
   desktopRepoId: string
@@ -93,30 +83,9 @@ export type WorkspaceScriptResult = {
   errorMessage?: string
 }
 
-export type LocalJobStatus =
-  | 'queued'
-  | 'claimed'
-  | 'setup_running'
-  | 'setup_failed'
-  | 'agent_running'
-  | 'agent_failed'
-  | 'agent_succeeded'
-  | 'cancelled'
-  | 'interrupted'
-
-export type LocalJobIndex = {
-  id: string
-  repoId: string
-  status: LocalJobStatus
-  branchName?: string
-  createdAt: number
-  updatedAt: number
-}
-
 export type DeskbinderConfig = {
   workerId: string
-  repos: RepoSettings[]
-  jobs: LocalJobIndex[]
+  trackedWorkspaces: TrackedWorkspace[]
 }
 
 export type CreateRepoInput = {

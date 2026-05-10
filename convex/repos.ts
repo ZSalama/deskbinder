@@ -57,17 +57,6 @@ type DesktopRepoConfigInput = {
   workspaceBranchName?: string
 }
 
-const desktopRepoConfigInputValidator = v.object({
-  localRepoId: v.string(),
-  sourceLocalRepoId: v.optional(v.string()),
-  name: v.string(),
-  repoPath: v.string(),
-  workspaceScriptPath: v.string(),
-  defaultScriptArgs: v.optional(v.string()),
-  agentExecutable: agentExecutableValidator,
-  workspaceBranchName: v.optional(v.string())
-})
-
 async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise<string> {
   const identity = await ctx.auth.getUserIdentity()
 
@@ -317,32 +306,17 @@ async function listActiveAccountRepoConfigs(
       q.eq('ownerTokenIdentifier', ownerTokenIdentifier)
     )
     .take(MAX_REPOS_PER_QUERY)
-  const activeRepos = repos
+
+  return repos
     .filter((repo) => !repo.deletedAt)
     .sort((first, second) => first.createdAt - second.createdAt)
-  const seenLocalRepoIds = new Set<string>()
-  const seenRepoPaths = new Set<string>()
-  const dedupedRepos: Array<Doc<'desktopRepoConfigs'>> = []
-
-  for (const repo of activeRepos) {
-    if (seenLocalRepoIds.has(repo.localRepoId) || seenRepoPaths.has(repo.repoPath)) {
-      continue
-    }
-
-    seenLocalRepoIds.add(repo.localRepoId)
-    seenRepoPaths.add(repo.repoPath)
-    dedupedRepos.push(repo)
-  }
-
-  return dedupedRepos
 }
 
 async function upsertDesktopRepoConfig(
   ctx: MutationCtx,
   ownerTokenIdentifier: string,
   workerId: string,
-  repoInput: DesktopRepoConfigInput,
-  options: { allowActiveLocalRepoUpdates: boolean; skipPathCollisions: boolean }
+  repoInput: DesktopRepoConfigInput
 ): Promise<Doc<'desktopRepoConfigs'> | null> {
   const now = Date.now()
   const repoFields = buildDesktopRepoConfigFields(ownerTokenIdentifier, workerId, repoInput, now)
@@ -357,28 +331,7 @@ async function upsertDesktopRepoConfig(
       : null
 
   if (pathCollision) {
-    if (options.allowActiveLocalRepoUpdates) {
-      const nextRepoFields = {
-        ...repoFields,
-        localRepoId: pathCollision.localRepoId,
-        workerId: pathCollision.workerId
-      }
-
-      if (repoConfigNeedsPatch(pathCollision, nextRepoFields)) {
-        await ctx.db.patch(
-          pathCollision._id,
-          buildRepoConfigPatch(pathCollision, nextRepoFields, { updateOriginWorker: false })
-        )
-      }
-
-      return await ctx.db.get(pathCollision._id)
-    }
-
-    if (!options.skipPathCollisions) {
-      throw new Error('This repository is already configured in deskbinder.')
-    }
-
-    return null
+    throw new Error('This repository is already configured in deskbinder.')
   }
 
   const existingRepo = await getAnyDesktopRepoConfigByLocalRepoId(
@@ -388,7 +341,7 @@ async function upsertDesktopRepoConfig(
   )
 
   if (existingRepo) {
-    if (!options.allowActiveLocalRepoUpdates && !existingRepo.deletedAt) {
+    if (!existingRepo.deletedAt) {
       throw new Error('Repository id is already configured.')
     }
 
@@ -396,7 +349,7 @@ async function upsertDesktopRepoConfig(
       await ctx.db.patch(
         existingRepo._id,
         buildRepoConfigPatch(existingRepo, repoFields, {
-          updateOriginWorker: Boolean(existingRepo.deletedAt)
+          updateOriginWorker: true
         })
       )
     }
@@ -422,10 +375,7 @@ export const createDesktopRepo = mutation({
   handler: async (ctx, args): Promise<DesktopRepoConfigSummary> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
     await requireDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
-    const repo = await upsertDesktopRepoConfig(ctx, ownerTokenIdentifier, args.workerId, args, {
-      allowActiveLocalRepoUpdates: false,
-      skipPathCollisions: false
-    })
+    const repo = await upsertDesktopRepoConfig(ctx, ownerTokenIdentifier, args.workerId, args)
 
     if (!repo) {
       throw new Error('Unable to create repository.')
@@ -434,35 +384,6 @@ export const createDesktopRepo = mutation({
     return toDesktopRepoSummary(
       repo,
       await getDesktopRepoState(ctx, ownerTokenIdentifier, args.workerId, repo.localRepoId)
-    )
-  }
-})
-
-export const importDesktopRepoConfigs = mutation({
-  args: {
-    workerId: v.string(),
-    repos: v.array(desktopRepoConfigInputValidator)
-  },
-  handler: async (ctx, args): Promise<DesktopRepoConfigSummary[]> => {
-    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
-    await requireDesktopWorker(ctx, ownerTokenIdentifier, args.workerId)
-
-    for (const repo of args.repos) {
-      await upsertDesktopRepoConfig(ctx, ownerTokenIdentifier, args.workerId, repo, {
-        allowActiveLocalRepoUpdates: true,
-        skipPathCollisions: true
-      })
-    }
-
-    const activeRepos = await listActiveAccountRepoConfigs(ctx, ownerTokenIdentifier)
-
-    return await Promise.all(
-      activeRepos.map(async (repo) =>
-        toDesktopRepoSummary(
-          repo,
-          await getDesktopRepoState(ctx, ownerTokenIdentifier, args.workerId, repo.localRepoId)
-        )
-      )
     )
   }
 })

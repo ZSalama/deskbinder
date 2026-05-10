@@ -1,55 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
-import { basename, dirname, isAbsolute, normalize, resolve } from 'node:path'
-import { access, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { promisify } from 'node:util'
+import { dirname, isAbsolute, normalize, resolve } from 'node:path'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import type { App } from 'electron'
 import type {
-  AgentExecutable,
-  CreateRepoInput,
   DeskbinderConfig,
   LocalDeviceConfig,
-  LocalJobIndex,
-  RepoSettings,
-  TrackedWorkspaceProcess,
-  UpdateRepoInput
+  TrackedWorkspace,
+  TrackedWorkspaceProcess
 } from '@deskbinder/shared/deskbinder'
 
 const CONFIG_FILENAME = 'deskbinder.json'
 const DEV_CONFIG_DIRECTORY = '.deskbinder'
-const DEFAULT_AGENT_EXECUTABLE: AgentExecutable = 'codex'
-const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
-const VALID_AGENT_EXECUTABLES = new Set<AgentExecutable>(['codex', 'claude'])
-const execFileAsync = promisify(execFile)
-
-type GitCommandResult = {
-  stdout: string
-}
-
-type RepoRootValidationOptions = {
-  allowWorktree: boolean
-  requireWorktree?: boolean
-}
-
-async function runGitCommand(cwd: string, args: string[]): Promise<GitCommandResult> {
-  try {
-    const { stdout } = await execFileAsync('git', args, {
-      cwd,
-      encoding: 'utf8',
-      maxBuffer: 1024 * 1024
-    })
-
-    return { stdout }
-  } catch {
-    throw new Error('The selected folder is not a valid Git repository.')
-  }
-}
 
 function createDefaultConfig(): DeskbinderConfig {
   return {
     workerId: randomUUID(),
-    repos: [],
-    jobs: []
+    trackedWorkspaces: []
   }
 }
 
@@ -74,43 +40,6 @@ function normalizeOptionalPath(value: string | undefined): string {
   }
 
   return normalize(isAbsolute(trimmed) ? trimmed : resolve(trimmed))
-}
-
-function isPathWithin(rootPath: string, targetPath: string): boolean {
-  const resolvedRootPath = normalize(rootPath)
-  const resolvedTargetPath = normalize(targetPath)
-  const relativePath = resolvedTargetPath.slice(resolvedRootPath.length)
-
-  return (
-    resolvedTargetPath === resolvedRootPath ||
-    (resolvedTargetPath.startsWith(`${resolvedRootPath}/`) && relativePath.length > 0)
-  )
-}
-
-function sanitizeWorkspaceScriptPath(value: unknown): string {
-  if (typeof value !== 'string') {
-    return ''
-  }
-
-  const trimmed = value.trim()
-
-  if (!trimmed) {
-    return ''
-  }
-
-  return normalize(trimmed)
-}
-
-function sanitizeAgentExecutable(value: unknown): AgentExecutable | undefined {
-  if (typeof value !== 'string') {
-    return undefined
-  }
-
-  const normalizedValue = value.trim()
-
-  return VALID_AGENT_EXECUTABLES.has(normalizedValue as AgentExecutable)
-    ? (normalizedValue as AgentExecutable)
-    : undefined
 }
 
 function sanitizeTrackedWorkspaceProcesses(value: unknown): TrackedWorkspaceProcess[] | undefined {
@@ -152,71 +81,47 @@ function sanitizeTrackedWorkspaceProcesses(value: unknown): TrackedWorkspaceProc
   return nextValues.length > 0 ? nextValues : undefined
 }
 
-function sanitizeUpdateRepoInput(value: unknown): UpdateRepoInput | null {
+function sanitizeTrackedWorkspace(value: unknown): TrackedWorkspace | null {
   if (!value || typeof value !== 'object') {
     return null
   }
 
   const record = value as Record<string, unknown>
-  const id = sanitizeString(record.id)
-  const name = sanitizeString(record.name)
-  const workspaceScriptPath = sanitizeWorkspaceScriptPath(record.workspaceScriptPath)
-  const defaultScriptArgs =
-    typeof record.defaultScriptArgs === 'string' && record.defaultScriptArgs.trim().length > 0
-      ? record.defaultScriptArgs.trim()
-      : undefined
-  const agentExecutable =
-    record.agentExecutable === undefined
-      ? DEFAULT_AGENT_EXECUTABLE
-      : sanitizeAgentExecutable(record.agentExecutable)
+  const repoId = sanitizeString(record.repoId)
+  const repoPath = normalizeOptionalPath(sanitizeString(record.repoPath) ?? undefined)
+  const sourceRepoPath = normalizeOptionalPath(sanitizeString(record.sourceRepoPath) ?? undefined)
+  const workspaceBranchName = sanitizeString(record.workspaceBranchName) ?? undefined
+  const workspaceProcesses = sanitizeTrackedWorkspaceProcesses(record.workspaceProcesses)
 
-  if (!id || !name || !workspaceScriptPath || !agentExecutable) {
+  if (!repoId || !repoPath) {
     return null
   }
 
   return {
-    id,
-    name,
-    workspaceScriptPath,
-    defaultScriptArgs,
-    agentExecutable
+    repoId,
+    repoPath,
+    sourceRepoPath: sourceRepoPath || undefined,
+    workspaceBranchName,
+    workspaceProcesses
   }
 }
 
-function validateRepoRelativeWorkspaceScriptPath(
-  repoPath: string,
-  workspaceScriptPath: string
-): string {
-  const normalizedWorkspaceScriptPath = sanitizeWorkspaceScriptPath(workspaceScriptPath)
-
-  if (!normalizedWorkspaceScriptPath) {
-    throw new Error('Workspace script path is required.')
+function sanitizeConfig(value: unknown): DeskbinderConfig {
+  if (!value || typeof value !== 'object') {
+    return createDefaultConfig()
   }
 
-  if (isAbsolute(normalizedWorkspaceScriptPath)) {
-    throw new Error('Workspace script path must be repo-relative.')
-  }
+  const record = value as Record<string, unknown>
+  const workerId = sanitizeString(record.workerId) ?? randomUUID()
+  const trackedWorkspaces = Array.isArray(record.trackedWorkspaces)
+    ? record.trackedWorkspaces
+        .map(sanitizeTrackedWorkspace)
+        .filter((workspace): workspace is TrackedWorkspace => workspace !== null)
+    : []
 
-  const normalizedRepoPath = normalize(repoPath)
-  const candidatePath = normalize(resolve(normalizedRepoPath, normalizedWorkspaceScriptPath))
-
-  if (!isPathWithin(normalizedRepoPath, candidatePath)) {
-    throw new Error('Workspace script path must stay within the repo root.')
-  }
-
-  return normalizedWorkspaceScriptPath
-}
-
-async function canonicalizePath(path: string): Promise<string> {
-  return normalize(await realpath(path))
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
+  return {
+    workerId,
+    trackedWorkspaces
   }
 }
 
@@ -228,149 +133,11 @@ function resolveConfigPath(app: App): string {
   return resolve(app.getPath('userData'), CONFIG_FILENAME)
 }
 
-function resolveLegacyConfigPath(app: App, configPath: string): string | null {
-  const legacyPath = resolve(app.getPath('userData'), CONFIG_FILENAME)
-  return legacyPath === configPath ? null : legacyPath
-}
-
-async function resolveRepoRoot(
-  repoPath: string,
-  { allowWorktree, requireWorktree = false }: RepoRootValidationOptions
-): Promise<string> {
-  const selectedPath = await canonicalizePath(repoPath)
-  const insideWorkTreeResult = await runGitCommand(selectedPath, [
-    'rev-parse',
-    '--is-inside-work-tree'
-  ])
-
-  if (insideWorkTreeResult.stdout.trim() !== 'true') {
-    throw new Error('The selected folder is not a valid Git repository.')
-  }
-
-  const repoTopLevelResult = await runGitCommand(selectedPath, ['rev-parse', '--show-toplevel'])
-  const repoRootPath = await canonicalizePath(repoTopLevelResult.stdout.trim())
-
-  if (repoRootPath !== selectedPath) {
-    throw new Error('Pick the repository root folder, not a subdirectory inside the repo.')
-  }
-
-  await runGitCommand(repoRootPath, ['branch', '--show-current'])
-
-  const gitDirResult = await runGitCommand(repoRootPath, ['rev-parse', '--git-dir'])
-  const gitCommonDirResult = await runGitCommand(repoRootPath, ['rev-parse', '--git-common-dir'])
-  const gitDirPath = await canonicalizePath(resolve(repoRootPath, gitDirResult.stdout.trim()))
-  const gitCommonDirPath = await canonicalizePath(
-    resolve(repoRootPath, gitCommonDirResult.stdout.trim())
-  )
-  const isWorktree = gitDirPath !== gitCommonDirPath
-
-  if (!allowWorktree && isWorktree) {
-    throw new Error('Git worktrees cannot be added as repos. Add the primary repository instead.')
-  }
-
-  if (requireWorktree && !isWorktree) {
-    throw new Error('Workspace script must return a Git worktree path.')
-  }
-
-  return repoRootPath
-}
-
-function sanitizeRepoSettings(value: unknown): RepoSettings | null {
-  if (!value || typeof value !== 'object') {
-    return null
-  }
-
-  const record = value as Record<string, unknown>
-  const id = sanitizeString(record.id)
-  const name = sanitizeString(record.name)
-  const repoPath = sanitizeString(record.repoPath)
-
-  if (!id || !name || !repoPath) {
-    return null
-  }
-
-  const normalizedRepoPath = normalizeOptionalPath(repoPath)
-  const workspaceScriptPath = sanitizeWorkspaceScriptPath(record.workspaceScriptPath)
-  const defaultScriptArgs =
-    typeof record.defaultScriptArgs === 'string' && record.defaultScriptArgs.trim().length > 0
-      ? record.defaultScriptArgs.trim()
-      : undefined
-  const agentExecutable = sanitizeAgentExecutable(record.agentExecutable)
-  const deleted = record.deleted === true
-  const sourceRepoId = sanitizeString(record.sourceRepoId) ?? undefined
-  const sourceRepoPath = normalizeOptionalPath(sanitizeString(record.sourceRepoPath) ?? undefined)
-  const workspaceBranchName = sanitizeString(record.workspaceBranchName) ?? undefined
-  const workspaceProcesses = sanitizeTrackedWorkspaceProcesses(record.workspaceProcesses)
-
-  return {
-    id,
-    name,
-    repoPath: normalizedRepoPath,
-    workspaceScriptPath,
-    defaultScriptArgs,
-    agentExecutable,
-    deleted,
-    sourceRepoId,
-    sourceRepoPath: sourceRepoPath || undefined,
-    workspaceBranchName,
-    workspaceProcesses
-  }
-}
-
-function sanitizeJobIndex(value: unknown): LocalJobIndex | null {
-  if (!value || typeof value !== 'object') {
-    return null
-  }
-
-  const record = value as Record<string, unknown>
-  const id = sanitizeString(record.id)
-  const repoId = sanitizeString(record.repoId)
-  const status = sanitizeString(record.status)
-  const createdAt = typeof record.createdAt === 'number' ? record.createdAt : null
-  const updatedAt = typeof record.updatedAt === 'number' ? record.updatedAt : null
-
-  if (!id || !repoId || !status || createdAt === null || updatedAt === null) {
-    return null
-  }
-
-  return {
-    id,
-    repoId,
-    status: status as LocalJobIndex['status'],
-    branchName: typeof record.branchName === 'string' ? record.branchName : undefined,
-    createdAt,
-    updatedAt
-  }
-}
-
-function sanitizeConfig(value: unknown): DeskbinderConfig {
-  if (!value || typeof value !== 'object') {
-    return createDefaultConfig()
-  }
-
-  const record = value as Record<string, unknown>
-  const workerId = sanitizeString(record.workerId) ?? randomUUID()
-  const repos = Array.isArray(record.repos)
-    ? record.repos.map(sanitizeRepoSettings).filter((repo): repo is RepoSettings => repo !== null)
-    : []
-  const jobs = Array.isArray(record.jobs)
-    ? record.jobs.map(sanitizeJobIndex).filter((job): job is LocalJobIndex => job !== null)
-    : []
-
-  return {
-    workerId,
-    repos,
-    jobs
-  }
-}
-
 export class LocalConfigStore {
   private readonly configPath: string
-  private readonly legacyConfigPath: string | null
 
   constructor(app: App) {
     this.configPath = resolveConfigPath(app)
-    this.legacyConfigPath = resolveLegacyConfigPath(app, this.configPath)
   }
 
   async read(): Promise<DeskbinderConfig> {
@@ -388,13 +155,6 @@ export class LocalConfigStore {
         typeof error === 'object' && error !== null && 'code' in error ? error.code : null
 
       if (errorCode === 'ENOENT') {
-        if (this.legacyConfigPath && (await pathExists(this.legacyConfigPath))) {
-          const rawLegacyConfig = await readFile(this.legacyConfigPath, 'utf8')
-          const migratedConfig = sanitizeConfig(JSON.parse(rawLegacyConfig))
-          await this.write(migratedConfig)
-          return migratedConfig
-        }
-
         const config = createDefaultConfig()
         await this.write(config)
         return config
@@ -412,161 +172,45 @@ export class LocalConfigStore {
     }
   }
 
-  async updateRepo(input: UpdateRepoInput): Promise<DeskbinderConfig> {
-    const sanitizedInput = sanitizeUpdateRepoInput(input)
-
-    if (!sanitizedInput) {
-      throw new Error('Invalid repo settings.')
-    }
-
+  async trackWorkspace(workspace: TrackedWorkspace): Promise<DeskbinderConfig> {
     const currentConfig = await this.read()
-    const existingRepo = currentConfig.repos.find((repo) => repo.id === sanitizedInput.id)
+    const sanitizedWorkspace = sanitizeTrackedWorkspace(workspace)
 
-    if (!existingRepo) {
-      throw new Error('Selected repo is no longer configured.')
+    if (!sanitizedWorkspace) {
+      throw new Error('Invalid workspace tracking metadata.')
     }
 
-    const nextRepo: RepoSettings = {
-      ...existingRepo,
-      name: sanitizedInput.name,
-      workspaceScriptPath: validateRepoRelativeWorkspaceScriptPath(
-        existingRepo.repoPath,
-        sanitizedInput.workspaceScriptPath
-      ),
-      defaultScriptArgs: sanitizedInput.defaultScriptArgs,
-      agentExecutable: sanitizedInput.agentExecutable
-    }
-    const nextRepos = currentConfig.repos.map((repo) =>
-      repo.id === existingRepo.id ? nextRepo : repo
+    const existingWorkspace = currentConfig.trackedWorkspaces.find(
+      (currentWorkspace) => currentWorkspace.repoId === sanitizedWorkspace.repoId
     )
-
+    const trackedWorkspaces = existingWorkspace
+      ? currentConfig.trackedWorkspaces.map((currentWorkspace) =>
+          currentWorkspace.repoId === sanitizedWorkspace.repoId
+            ? sanitizedWorkspace
+            : currentWorkspace
+        )
+      : [...currentConfig.trackedWorkspaces, sanitizedWorkspace]
     const nextConfig = {
       ...currentConfig,
-      repos: nextRepos
+      trackedWorkspaces
     }
 
     await this.write(nextConfig)
     return nextConfig
   }
 
-  async createRepo(input: CreateRepoInput): Promise<DeskbinderConfig> {
-    const name = sanitizeString(input.name)
-    const repoPath = sanitizeString(input.repoPath)
+  async forgetTrackedWorkspace(repoId: string): Promise<DeskbinderConfig> {
+    const sanitizedRepoId = sanitizeString(repoId)
 
-    if (!name || !repoPath) {
-      throw new Error('Invalid repo settings.')
+    if (!sanitizedRepoId) {
+      return this.read()
     }
 
-    const normalizedRepoPath = await resolveRepoRoot(repoPath, {
-      allowWorktree: false
-    })
-    const currentConfig = await this.read()
-    const existingRepo = currentConfig.repos.find(
-      (repo) => !repo.deleted && repo.repoPath === normalizedRepoPath
-    )
-
-    if (existingRepo) {
-      throw new Error('This repository is already configured in deskbinder.')
-    }
-
-    const nextConfig = {
-      ...currentConfig,
-      repos: [
-        ...currentConfig.repos,
-        {
-          id: randomUUID(),
-          name,
-          repoPath: normalizedRepoPath,
-          workspaceScriptPath: DEFAULT_WORKSPACE_SCRIPT_PATH,
-          agentExecutable: DEFAULT_AGENT_EXECUTABLE
-        }
-      ]
-    }
-
-    await this.write(nextConfig)
-    return nextConfig
-  }
-
-  async registerWorkspaceRepo(
-    sourceRepo: RepoSettings,
-    workspacePath: string,
-    workspaceName?: string,
-    metadata?: {
-      branchName?: string
-      processes?: TrackedWorkspaceProcess[]
-    }
-  ): Promise<{
-    config: DeskbinderConfig
-    repoId: string
-  }> {
-    const normalizedWorkspacePath = await resolveRepoRoot(workspacePath, {
-      allowWorktree: true,
-      requireWorktree: true
-    })
-    const currentConfig = await this.read()
-    const existingRepo = currentConfig.repos.find(
-      (repo) => repo.repoPath === normalizedWorkspacePath
-    )
-    const nextRepoName = sanitizeString(workspaceName) ?? basename(normalizedWorkspacePath)
-
-    if (existingRepo) {
-      const nextRepo: RepoSettings = {
-        ...existingRepo,
-        name: nextRepoName,
-        workspaceScriptPath: sourceRepo.workspaceScriptPath || DEFAULT_WORKSPACE_SCRIPT_PATH,
-        defaultScriptArgs: sourceRepo.defaultScriptArgs,
-        agentExecutable: sourceRepo.agentExecutable,
-        deleted: false,
-        sourceRepoId: sourceRepo.id,
-        sourceRepoPath: sourceRepo.repoPath,
-        workspaceBranchName: metadata?.branchName,
-        workspaceProcesses: metadata?.processes
-      }
-      const nextConfig = {
-        ...currentConfig,
-        repos: currentConfig.repos.map((repo) => (repo.id === existingRepo.id ? nextRepo : repo))
-      }
-
-      await this.write(nextConfig)
-      return {
-        config: nextConfig,
-        repoId: existingRepo.id
-      }
-    }
-
-    const repoId = randomUUID()
-    const nextConfig = {
-      ...currentConfig,
-      repos: [
-        ...currentConfig.repos,
-        {
-          id: repoId,
-          name: nextRepoName,
-          repoPath: normalizedWorkspacePath,
-          workspaceScriptPath: sourceRepo.workspaceScriptPath || DEFAULT_WORKSPACE_SCRIPT_PATH,
-          defaultScriptArgs: sourceRepo.defaultScriptArgs,
-          agentExecutable: sourceRepo.agentExecutable ?? DEFAULT_AGENT_EXECUTABLE,
-          sourceRepoId: sourceRepo.id,
-          sourceRepoPath: sourceRepo.repoPath,
-          workspaceBranchName: metadata?.branchName,
-          workspaceProcesses: metadata?.processes
-        }
-      ]
-    }
-
-    await this.write(nextConfig)
-    return {
-      config: nextConfig,
-      repoId
-    }
-  }
-
-  async softDeleteRepo(repoId: string): Promise<DeskbinderConfig> {
     const currentConfig = await this.read()
     const nextConfig = {
       ...currentConfig,
-      repos: currentConfig.repos.map((repo) =>
-        repo.id === repoId ? { ...repo, deleted: true, workspaceProcesses: undefined } : repo
+      trackedWorkspaces: currentConfig.trackedWorkspaces.filter(
+        (workspace) => workspace.repoId !== sanitizedRepoId
       )
     }
 
@@ -583,26 +227,11 @@ export class LocalConfigStore {
     const currentConfig = await this.read()
     const nextConfig = {
       ...currentConfig,
-      repos: currentConfig.repos.map((repo) =>
-        targetRepoIds.has(repo.id) ? { ...repo, workspaceProcesses: undefined } : repo
+      trackedWorkspaces: currentConfig.trackedWorkspaces.map((workspace) =>
+        targetRepoIds.has(workspace.repoId)
+          ? { ...workspace, workspaceProcesses: undefined }
+          : workspace
       )
-    }
-
-    await this.write(nextConfig)
-    return nextConfig
-  }
-
-  async trackWorkspaceRepo(repo: RepoSettings): Promise<DeskbinderConfig> {
-    const currentConfig = await this.read()
-    const existingRepo = currentConfig.repos.find((currentRepo) => currentRepo.id === repo.id)
-    const nextRepos = existingRepo
-      ? currentConfig.repos.map((currentRepo) =>
-          currentRepo.id === repo.id ? { ...currentRepo, ...repo, deleted: false } : currentRepo
-        )
-      : [...currentConfig.repos, repo]
-    const nextConfig = {
-      ...currentConfig,
-      repos: nextRepos
     }
 
     await this.write(nextConfig)

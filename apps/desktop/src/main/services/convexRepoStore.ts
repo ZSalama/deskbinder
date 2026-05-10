@@ -271,31 +271,6 @@ export class ConvexRepoStore {
     })
   }
 
-  async importLocalRepoConfigs(repos: RepoSettings[]): Promise<DesktopRepoSummary[]> {
-    const workerId = await this.getWorkerId()
-    const activeRepos = repos.filter((repo) => !repo.deleted)
-
-    await this.registerWorker()
-
-    if (activeRepos.length === 0) {
-      return this.listRepos()
-    }
-
-    return await this.convexSession.requireClient().mutation(api.repos.importDesktopRepoConfigs, {
-      workerId,
-      repos: activeRepos.map((repo) => ({
-        localRepoId: repo.id,
-        sourceLocalRepoId: repo.sourceRepoId,
-        name: repo.name,
-        repoPath: repo.repoPath,
-        workspaceScriptPath: repo.workspaceScriptPath || DEFAULT_WORKSPACE_SCRIPT_PATH,
-        defaultScriptArgs: repo.defaultScriptArgs,
-        agentExecutable: repo.agentExecutable ?? DEFAULT_AGENT_EXECUTABLE,
-        workspaceBranchName: repo.workspaceBranchName
-      }))
-    })
-  }
-
   async listRepos(): Promise<DesktopRepoSummary[]> {
     return await this.convexSession.requireClient().query(api.repos.listDesktopRepos, {
       workerId: await this.getWorkerId()

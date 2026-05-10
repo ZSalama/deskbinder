@@ -3,7 +3,6 @@ import { realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, normalize, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { DeleteWorkspaceResponse, RepoSettings } from '@deskbinder/shared/deskbinder'
-import { LocalConfigStore } from './localConfig'
 import { terminateTrackedWorkspaceProcesses } from './processTracking'
 
 const execFileAsync = promisify(execFile)
@@ -165,43 +164,6 @@ async function findWorktreeEntry(
 async function validateBranchName(sourceRepoPath: string, branchName: string): Promise<string> {
   await runGitCommand(sourceRepoPath, ['check-ref-format', '--branch', branchName])
   return branchName
-}
-
-function selectNextRepoId(currentRepos: RepoSettings[], preferredRepoId?: string): string | null {
-  const visibleRepos = currentRepos.filter((repo) => !repo.deleted)
-
-  if (preferredRepoId && visibleRepos.some((repo) => repo.id === preferredRepoId)) {
-    return preferredRepoId
-  }
-
-  return visibleRepos[0]?.id ?? null
-}
-
-export async function deleteWorkspace({
-  localConfigStore,
-  repoId
-}: {
-  localConfigStore: LocalConfigStore
-  repoId: string
-}): Promise<DeleteWorkspaceResponse> {
-  const currentConfig = await localConfigStore.read()
-  const repo = currentConfig.repos.find((currentRepo) => currentRepo.id === repoId)
-
-  if (!repo) {
-    throw new Error('Selected workspace is no longer configured.')
-  }
-
-  return await deleteWorkspaceForRepo({
-    repo,
-    softDeleteRepo: async () => {
-      const nextConfig = await localConfigStore.softDeleteRepo(repo.id)
-
-      return {
-        config: nextConfig,
-        selectedRepoId: selectNextRepoId(nextConfig.repos, repo.sourceRepoId)
-      }
-    }
-  })
 }
 
 export async function deleteWorkspaceForRepo({
