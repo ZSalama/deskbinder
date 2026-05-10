@@ -65,6 +65,7 @@ Runtime details:
 - Current working directory is the parent repository root.
 - `argv[1]` is always the requested branch name.
 - Additional arguments come from the repo's default script args or the per-run script args field.
+- If Auto start dev environment is enabled, Deskbinder appends `--port <number>` after the configured additional arguments.
 - Additional args are parsed from a shell-like text field supporting spaces, single quotes, double quotes, and backslash escapes.
 - The script receives argv entries directly; shell expansion, pipes, redirects, environment assignments, and command substitution are not applied by Deskbinder.
 - Standard input is ignored.
@@ -81,6 +82,33 @@ git check-ref-format --branch <branchName>
 ```
 
 The script should still defensively handle branch conflicts, existing worktrees, and project-specific naming rules.
+
+## Auto Dev Port Mode
+
+The New workspace dialog includes an Auto start dev environment option. When enabled, Deskbinder allocates a currently available loopback port and appends it to each workspace script invocation:
+
+```text
+<repo>/<workspaceScriptPath> <branchName> [...scriptArgs] --port <allocatedPort>
+```
+
+Auto dev allocation starts at port `3000` and scans upward, skipping ports that are already listening and ports already reserved for other workspaces in the same batch. Batch creation still runs each script sequentially.
+
+Scripts that want users to automatically spin up new dev environments must support:
+
+```text
+--port <number>
+```
+
+When `--port` is present, the script should:
+
+- Start the dev environment on that exact port.
+- Return `port` in the final JSON result.
+- Return `url` when the local URL is known, for example `http://localhost:3000`.
+- Return `processes.dev` for the long-running dev server process Deskbinder should track and clean up.
+
+Deskbinder probes the port before invoking the script, but the script must still validate the port immediately before starting the dev server. Another process can claim the port between Deskbinder's probe and the script's server startup.
+
+Manual port workflows are still supported. If Auto start dev environment is disabled, users may provide `--port <number>` or other repo-specific arguments themselves. If Auto start dev environment is enabled, Deskbinder rejects script args that already contain `--port` or `--port=<number>` to avoid ambiguous invocations.
 
 ## Required Success Behavior
 
@@ -414,4 +442,3 @@ The contract above is derived from:
 - `apps/desktop/src/main/services/processTracking.ts`
 - `packages/shared/src/deskbinder.ts`
 - `convex/branchRequests.ts`
-- Local working example reviewed: `~/bin/ainewworkspace`

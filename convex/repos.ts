@@ -296,16 +296,24 @@ async function getAnyDesktopRepoConfigByLocalRepoId(
   return repos.sort((first, second) => first.createdAt - second.createdAt)[0] ?? null
 }
 
-async function listActiveAccountRepoConfigs(
+async function listActiveRepoConfigs(
   ctx: QueryCtx | MutationCtx,
-  ownerTokenIdentifier: string
+  ownerTokenIdentifier: string,
+  workerId?: string
 ): Promise<Array<Doc<'desktopRepoConfigs'>>> {
-  const repos = await ctx.db
-    .query('desktopRepoConfigs')
-    .withIndex('by_ownerTokenIdentifier_and_localRepoId', (q) =>
-      q.eq('ownerTokenIdentifier', ownerTokenIdentifier)
-    )
-    .take(MAX_REPOS_PER_QUERY)
+  const repos = workerId
+    ? await ctx.db
+        .query('desktopRepoConfigs')
+        .withIndex('by_ownerTokenIdentifier_and_workerId', (q) =>
+          q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('workerId', workerId)
+        )
+        .take(MAX_REPOS_PER_QUERY)
+    : await ctx.db
+        .query('desktopRepoConfigs')
+        .withIndex('by_ownerTokenIdentifier_and_localRepoId', (q) =>
+          q.eq('ownerTokenIdentifier', ownerTokenIdentifier)
+        )
+        .take(MAX_REPOS_PER_QUERY)
 
   return repos
     .filter((repo) => !repo.deletedAt)
@@ -471,7 +479,7 @@ export const listDesktopRepos = query({
   },
   handler: async (ctx, args): Promise<DesktopRepoConfigSummary[]> => {
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
-    const activeRepos = await listActiveAccountRepoConfigs(ctx, ownerTokenIdentifier)
+    const activeRepos = await listActiveRepoConfigs(ctx, ownerTokenIdentifier, args.workerId)
 
     return await Promise.all(
       activeRepos.map(async (repo) =>
@@ -514,6 +522,11 @@ export const syncDesktopRepoStates = mutation({
         ownerTokenIdentifier,
         repoState.localRepoId
       )
+
+      if (repo.workerId !== args.workerId) {
+        continue
+      }
+
       const existingState = await getDesktopRepoState(
         ctx,
         ownerTokenIdentifier,
@@ -543,7 +556,7 @@ export const syncDesktopRepoStates = mutation({
       }
     }
 
-    const activeRepos = await listActiveAccountRepoConfigs(ctx, ownerTokenIdentifier)
+    const activeRepos = await listActiveRepoConfigs(ctx, ownerTokenIdentifier, args.workerId)
 
     return await Promise.all(
       activeRepos.map(async (repo) =>

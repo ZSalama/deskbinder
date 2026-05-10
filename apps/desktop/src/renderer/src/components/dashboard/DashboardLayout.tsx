@@ -623,8 +623,10 @@ export function DashboardLayout(): React.JSX.Element {
   }
 
   async function handleRunWorkspaceScripts({
+    autoStartDevEnvironment,
     workspaces
   }: {
+    autoStartDevEnvironment?: boolean
     workspaces: WorkspaceScriptRunInput[]
   }): Promise<void> {
     const targetRepo = repoForWorkspaceScript ?? activeRepo
@@ -637,6 +639,7 @@ export function DashboardLayout(): React.JSX.Element {
 
     try {
       const response = await getDesktopApi().runWorkspaceScripts({
+        autoStartDevEnvironment,
         repoId: targetRepo.id,
         workspaces
       })

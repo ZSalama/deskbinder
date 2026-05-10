@@ -62,19 +62,25 @@ describe('desktop repo config ownership', () => {
     })
   })
 
-  test('lists account repo configs with worker-scoped readiness', async () => {
+  test('lists worker repo configs when workerId is provided', async () => {
     const t = createTestBackend()
     await registerWorker(t, 'worker-a')
     await registerWorker(t, 'worker-b')
 
     await createRepo(t, 'worker-a')
+    await createRepo(t, 'worker-b', {
+      localRepoId: 'repo-2',
+      name: 'Repo Two',
+      repoPath: '/workspace/repo-two'
+    })
 
     const workerBReposBeforeSync = await t.query(api.repos.listDesktopRepos, {
       workerId: 'worker-b'
     })
     expect(workerBReposBeforeSync).toHaveLength(1)
     expect(workerBReposBeforeSync[0]).toMatchObject({
-      localRepoId: 'repo-1',
+      workerId: 'worker-b',
+      localRepoId: 'repo-2',
       readinessStatus: 'missing_repo',
       lastSeenAt: 0
     })
@@ -83,7 +89,7 @@ describe('desktop repo config ownership', () => {
       workerId: 'worker-b',
       repos: [
         {
-          localRepoId: 'repo-1',
+          localRepoId: 'repo-2',
           currentBranch: 'worker-b-main',
           isValid: true,
           readinessStatus: 'ready',
@@ -97,10 +103,85 @@ describe('desktop repo config ownership', () => {
       workerId: 'worker-b'
     })
     expect(workerBRepos[0]).toMatchObject({
-      localRepoId: 'repo-1',
+      workerId: 'worker-b',
+      localRepoId: 'repo-2',
       currentBranch: 'worker-b-main',
       readinessStatus: 'ready',
       lastSeenAt: 123
+    })
+
+    const workerARepos = await t.query(api.repos.listDesktopRepos, {
+      workerId: 'worker-a'
+    })
+    expect(workerARepos[0]).toMatchObject({
+      workerId: 'worker-a',
+      localRepoId: 'repo-1',
+      readinessStatus: 'missing_repo',
+      lastSeenAt: 0
+    })
+  })
+
+  test('lists account repo configs when workerId is omitted', async () => {
+    const t = createTestBackend()
+    await registerWorker(t, 'worker-a')
+    await registerWorker(t, 'worker-b')
+
+    await createRepo(t, 'worker-a')
+    await createRepo(t, 'worker-b', {
+      localRepoId: 'repo-2',
+      name: 'Repo Two',
+      repoPath: '/workspace/repo-two'
+    })
+
+    const repos = await t.query(api.repos.listDesktopRepos, {})
+
+    expect(repos).toHaveLength(2)
+    expect(repos.map((repo) => `${repo.workerId}:${repo.localRepoId}`)).toEqual([
+      'worker-a:repo-1',
+      'worker-b:repo-2'
+    ])
+  })
+
+  test('sync only returns and updates repos owned by the syncing worker', async () => {
+    const t = createTestBackend()
+    await registerWorker(t, 'worker-a')
+    await registerWorker(t, 'worker-b')
+
+    await createRepo(t, 'worker-a')
+    await createRepo(t, 'worker-b', {
+      localRepoId: 'repo-2',
+      name: 'Repo Two',
+      repoPath: '/workspace/repo-two'
+    })
+
+    const syncedRepos = await t.mutation(api.repos.syncDesktopRepoStates, {
+      workerId: 'worker-b',
+      repos: [
+        {
+          localRepoId: 'repo-1',
+          currentBranch: 'foreign-main',
+          isValid: true,
+          readinessStatus: 'ready',
+          readinessMessage: 'Should be ignored.',
+          lastSeenAt: 111
+        },
+        {
+          localRepoId: 'repo-2',
+          currentBranch: 'worker-b-main',
+          isValid: true,
+          readinessStatus: 'ready',
+          readinessMessage: 'Ready on worker B.',
+          lastSeenAt: 222
+        }
+      ]
+    })
+
+    expect(syncedRepos).toHaveLength(1)
+    expect(syncedRepos[0]).toMatchObject({
+      workerId: 'worker-b',
+      localRepoId: 'repo-2',
+      currentBranch: 'worker-b-main',
+      lastSeenAt: 222
     })
 
     const workerARepos = await t.query(api.repos.listDesktopRepos, {

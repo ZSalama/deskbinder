@@ -18,7 +18,7 @@ import {
   terminateTrackedWorkspaceProcesses
 } from './services/processTracking'
 import { AgentRunner } from './services/agentRunner'
-import { runWorkspaceScript } from './services/workspaceScript'
+import { findAvailableAutoDevPort, runWorkspaceScript } from './services/workspaceScript'
 import { ConvexSession } from './services/convexSession'
 import { ConvexRepoStore, desktopRepoToRepoSettings } from './services/convexRepoStore'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
@@ -96,6 +96,14 @@ function getStringInput(input: unknown, key: string): string {
 
   const value = (input as Record<string, unknown>)[key]
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function getBooleanInput(input: unknown, key: string): boolean {
+  if (!input || typeof input !== 'object') {
+    return false
+  }
+
+  return (input as Record<string, unknown>)[key] === true
 }
 
 function getOptionalStringInput(
@@ -196,6 +204,7 @@ function buildWorkspaceScriptRunFailure({
 function getWorkspaceBatchRunsInput(input: unknown):
   | {
       ok: true
+      autoStartDevEnvironment: boolean
       repoId: string
       workspaces: Array<{ branchName: string; scriptArgs?: string }>
     }
@@ -278,23 +287,27 @@ function getWorkspaceBatchRunsInput(input: unknown):
 
   return {
     ok: true,
+    autoStartDevEnvironment: getBooleanInput(input, 'autoStartDevEnvironment'),
     repoId,
     workspaces: normalizedWorkspaces as Array<{ branchName: string; scriptArgs?: string }>
   }
 }
 
 async function runAndRegisterWorkspace({
+  autoDevPort,
   branchName,
   index,
   scriptArgs,
   sourceRepo
 }: {
+  autoDevPort?: number
   branchName: string
   index: number
   scriptArgs?: string
   sourceRepo: RepoSettings
 }): Promise<WorkspaceScriptRunResponse> {
   const result = await runWorkspaceScript({
+    autoDevPort,
     branchName,
     repo: sourceRepo,
     scriptArgs
@@ -363,6 +376,7 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
 
   const repoId = getStringInput(input, 'repoId')
   const branchName = getStringInput(input, 'branchName')
+  const autoStartDevEnvironment = getBooleanInput(input, 'autoStartDevEnvironment')
   const defaultScriptArgsInput = getOptionalStringInput(input, 'defaultScriptArgs')
   let sourceRepo: RepoSettings
 
@@ -413,7 +427,25 @@ async function handleRunWorkspaceScript(input: unknown): Promise<RunWorkspaceScr
     }
   }
 
+  let autoDevPort: number | undefined
+
+  if (autoStartDevEnvironment) {
+    try {
+      autoDevPort = await findAvailableAutoDevPort(new Set())
+    } catch (error) {
+      return {
+        selectedRepoId: sourceRepo.id,
+        result: buildWorkspaceScriptResultFailure(
+          branchName,
+          'input_validation',
+          error instanceof Error ? error.message : 'No available auto dev port found.'
+        )
+      }
+    }
+  }
+
   const response = await runAndRegisterWorkspace({
+    autoDevPort,
     branchName,
     index: 0,
     sourceRepo
@@ -465,10 +497,32 @@ async function handleRunWorkspaceScripts(input: unknown): Promise<RunWorkspaceSc
   }
 
   const results: WorkspaceScriptRunResponse[] = []
+  const reservedAutoDevPorts = new Set<number>()
 
   for (const [index, workspace] of inputResult.workspaces.entries()) {
+    let autoDevPort: number | undefined
+
+    if (inputResult.autoStartDevEnvironment) {
+      try {
+        autoDevPort = await findAvailableAutoDevPort(reservedAutoDevPorts)
+        reservedAutoDevPorts.add(autoDevPort)
+      } catch (error) {
+        results.push(
+          buildWorkspaceScriptRunFailure({
+            index,
+            branchName: workspace.branchName,
+            failureStep: 'input_validation',
+            errorMessage:
+              error instanceof Error ? error.message : 'No available auto dev port found.'
+          })
+        )
+        continue
+      }
+    }
+
     results.push(
       await runAndRegisterWorkspace({
+        autoDevPort,
         index,
         branchName: workspace.branchName,
         scriptArgs: workspace.scriptArgs,

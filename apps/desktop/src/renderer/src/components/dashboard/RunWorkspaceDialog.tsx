@@ -4,6 +4,7 @@ import {
   type WorkspaceScriptRunInput
 } from '@deskbinder/shared/deskbinder'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,11 @@ const WORKSPACE_COUNTS = Array.from({ length: MAX_WORKSPACE_BATCH_COUNT }, (_, i
 type WorkspaceDraft = {
   branchName: string
   scriptArgs: string
+}
+
+type RunWorkspaceDialogSubmitInput = {
+  autoStartDevEnvironment?: boolean
+  workspaces: WorkspaceScriptRunInput[]
 }
 
 function getWorkspaceScriptPath(repo: DashboardRepo): string {
@@ -74,7 +80,7 @@ function resolveWorkspaceDrafts(
 type RunWorkspaceDialogProps = {
   isSubmitting: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (input: { workspaces: WorkspaceScriptRunInput[] }) => void
+  onSubmit: (input: RunWorkspaceDialogSubmitInput) => void
   open: boolean
   repo: DashboardRepo | null
 }
@@ -136,6 +142,7 @@ function RunWorkspaceDialogForm({
   const [workspaceDrafts, setWorkspaceDrafts] = useState<WorkspaceDraft[]>(() =>
     WORKSPACE_COUNTS.map(() => buildInitialWorkspaceDraft(defaultScriptArgs))
   )
+  const [autoStartDevEnvironment, setAutoStartDevEnvironment] = useState(true)
   const [formError, setFormError] = useState<string | null>(null)
 
   function updateWorkspaceDraft(index: number, patch: Partial<WorkspaceDraft>): void {
@@ -155,7 +162,10 @@ function RunWorkspaceDialogForm({
     }
 
     setFormError(null)
-    onSubmit({ workspaces: result.workspaces })
+    onSubmit({
+      autoStartDevEnvironment,
+      workspaces: result.workspaces
+    })
   }
 
   return (
@@ -200,6 +210,21 @@ function RunWorkspaceDialogForm({
                 {getWorkspaceScriptPath(repo)}
               </code>
             </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2.5">
+            <Checkbox
+              id="auto-start-dev-environment"
+              checked={autoStartDevEnvironment}
+              disabled={isSubmitting}
+              onCheckedChange={(checked) => setAutoStartDevEnvironment(checked === true)}
+            />
+            <label
+              className="text-sm font-medium text-slate-100"
+              htmlFor="auto-start-dev-environment"
+            >
+              Auto start dev environment
+            </label>
           </div>
 
           <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.025]">
@@ -252,7 +277,7 @@ function RunWorkspaceDialogForm({
                           handleSubmit()
                         }
                       }}
-                      placeholder="--port 3001 --env dev"
+                      placeholder="--env dev"
                       value={draft.scriptArgs}
                     />
                   </label>

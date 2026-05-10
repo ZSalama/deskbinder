@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { access, constants, realpath } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { isAbsolute, normalize, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { execFile } from 'node:child_process'
@@ -9,11 +10,15 @@ const execFileAsync = promisify(execFile)
 const SCRIPT_TIMEOUT_MS = 10 * 60 * 1000
 const MAX_OUTPUT_BYTES = 256 * 1024
 const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
+const AUTO_DEV_PORT_START = 3000
+const AUTO_DEV_PORT_MAX = 65535
+const AUTO_DEV_PORT_HOST = '127.0.0.1'
 
 type WorkspaceScriptRunOptions = {
   branchName: string
   repo: RepoSettings
   scriptArgs?: string
+  autoDevPort?: number
 }
 
 function sanitizeString(value: unknown): string | undefined {
@@ -209,6 +214,54 @@ function trimOutput(value: string): string {
   return `${trimmed.slice(0, 2000)}...`
 }
 
+function hasManualPortArg(args: string[]): boolean {
+  return args.some((arg) => arg === '--port' || arg.startsWith('--port='))
+}
+
+async function canBindPort(port: number): Promise<boolean> {
+  return await new Promise<boolean>((resolvePort) => {
+    const server = createServer()
+    let settled = false
+
+    const finish = (available: boolean): void => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      server.removeAllListeners()
+      resolvePort(available)
+    }
+
+    server.unref()
+    server.once('error', () => finish(false))
+    server.once('listening', () => {
+      server.close(() => finish(true))
+    })
+    server.listen({
+      port,
+      host: AUTO_DEV_PORT_HOST,
+      exclusive: true
+    })
+  })
+}
+
+export async function findAvailableAutoDevPort(reservedPorts: Set<number>): Promise<number> {
+  for (let port = AUTO_DEV_PORT_START; port <= AUTO_DEV_PORT_MAX; port += 1) {
+    if (reservedPorts.has(port)) {
+      continue
+    }
+
+    if (await canBindPort(port)) {
+      return port
+    }
+  }
+
+  throw new Error(
+    `No available auto dev ports found between ${AUTO_DEV_PORT_START} and ${AUTO_DEV_PORT_MAX}.`
+  )
+}
+
 async function validateBranchName(repoPath: string, branchName: string): Promise<void> {
   try {
     await execFileAsync('git', ['check-ref-format', '--branch', branchName], {
@@ -255,6 +308,7 @@ async function validateScriptPath(
 }
 
 export async function runWorkspaceScript({
+  autoDevPort,
   branchName,
   repo,
   scriptArgs
@@ -275,9 +329,18 @@ export async function runWorkspaceScript({
     const executablePath = await validateScriptPath(repo.repoPath, repo.workspaceScriptPath)
     const rawScriptArgs = scriptArgs === undefined ? repo.defaultScriptArgs : scriptArgs
     const scriptArgLabel = scriptArgs === undefined ? 'Default script args' : 'Script args'
+    const parsedScriptArgs = parseArgString(rawScriptArgs, scriptArgLabel)
+
+    if (autoDevPort !== undefined && hasManualPortArg(parsedScriptArgs)) {
+      throw new Error(
+        'Auto start dev environment cannot be combined with a manual --port argument.'
+      )
+    }
+
     const resolvedScriptArgs = [
       normalizedBranchName,
-      ...parseArgString(rawScriptArgs, scriptArgLabel)
+      ...parsedScriptArgs,
+      ...(autoDevPort === undefined ? [] : ['--port', String(autoDevPort)])
     ]
 
     return await new Promise<WorkspaceScriptResult>((resolveResult) => {

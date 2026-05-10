@@ -163,7 +163,7 @@ function RepoSettingsDialogForm({
             <Input
               className="h-11 border-white/10 bg-white/5 font-mono text-[13px] text-slate-100 placeholder:text-slate-500"
               onChange={(event) => setDraftDefaultScriptArgs(event.target.value)}
-              placeholder="--port 3001 --env dev"
+              placeholder="--env dev"
               value={draftDefaultScriptArgs}
             />
           </label>

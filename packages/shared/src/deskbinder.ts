@@ -111,6 +111,7 @@ export type RunWorkspaceScriptInput = {
   repoId: string
   branchName: string
   defaultScriptArgs?: string
+  autoStartDevEnvironment?: boolean
 }
 
 export type WorkspaceScriptRunInput = {
@@ -120,6 +121,7 @@ export type WorkspaceScriptRunInput = {
 
 export type RunWorkspaceScriptsInput = {
   repoId: string
+  autoStartDevEnvironment?: boolean
   workspaces: WorkspaceScriptRunInput[]
 }
 
