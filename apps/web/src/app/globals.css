@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 :root {
   color-scheme: dark;
@@ -15,17 +15,9 @@ body {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(34, 211, 238, 0.18), transparent 28%),
-    radial-gradient(circle at 78% 14%, rgba(251, 191, 36, 0.16), transparent 26%),
-    linear-gradient(180deg, #071019 0%, #0a1621 45%, #04080d 100%);
+  background: #080d14;
   color: #f8fafc;
-  font-family:
-    "IBM Plex Sans",
-    "Inter",
-    ui-sans-serif,
-    system-ui,
-    sans-serif;
+  font-family: 'IBM Plex Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
 a {

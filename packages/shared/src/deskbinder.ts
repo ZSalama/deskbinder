@@ -8,12 +8,18 @@ export type TrackedWorkspaceProcess = {
   cwdPath?: string
 }
 
+export type TrackedDevEnvironment = {
+  port: number
+  process: TrackedWorkspaceProcess
+}
+
 export type TrackedWorkspace = {
   repoId: string
   repoPath: string
   sourceRepoPath?: string
   workspaceBranchName?: string
   workspaceProcesses?: TrackedWorkspaceProcess[]
+  devEnvironment?: TrackedDevEnvironment
 }
 
 export type RepoSettings = {
@@ -28,6 +34,7 @@ export type RepoSettings = {
   sourceRepoPath?: string
   workspaceBranchName?: string
   workspaceProcesses?: TrackedWorkspaceProcess[]
+  devEnvironment?: TrackedDevEnvironment
 }
 
 export type RepoReadinessStatus =
@@ -128,6 +135,48 @@ export type RunWorkspaceScriptsInput = {
 export type DeleteWorkspaceInput = {
   repoId: string
 }
+
+export type GetDevEnvironmentStatusInput = {
+  repoId: string
+}
+
+export type DevEnvironmentStatus =
+  | {
+      running: true
+      repoId: string
+      port: number
+      pid: number
+      url: string
+    }
+  | {
+      running: false
+      repoId: string
+      port?: number
+      pid?: number
+      reason:
+        | 'not_configured'
+        | 'invalid_port'
+        | 'process_exited'
+        | 'port_unavailable'
+        | 'repo_unavailable'
+    }
+
+export type OpenDevEnvironmentInput = {
+  repoId: string
+}
+
+export type OpenDevEnvironmentResponse =
+  | {
+      ok: true
+      url: string
+      port: number
+      pid: number
+    }
+  | {
+      ok: false
+      errorMessage: string
+      status: DevEnvironmentStatus
+    }
 
 export type AgentRunStatus =
   | 'running'

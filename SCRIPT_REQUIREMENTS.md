@@ -293,6 +293,8 @@ fi
 
 This lets agents and optional dev servers run against a workspace that behaves like the parent repo without requiring users to recreate secrets or local config manually.
 
+Monorepos commonly have scoped env files such as `apps/web/.env.local` or `apps/desktop/.env.local`; make sure every required `.env*` file is copied while preserving its relative path, not only root-level env files.
+
 Keep these rules in mind:
 
 - Copy env files locally, but do not print their contents in logs or result JSON.

@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Deskbinder parses stdout for the final JSON result. Keep progress on stderr.
+exec 3>&1
+exec 1>&2
+
+CURRENT_STEP="initialize"
+RESULT_EMITTED=0
+WORKTREE_CREATED=0
+SETUP_LOG="$(mktemp -t deskbinder-new-workspace.XXXXXX.log)"
+
+BRANCH_NAME=""
+BASE_REF="${BASE_BRANCH:-main}"
+PORT=""
+SKIP_INSTALL=0
+WORKSPACE_ROOT="${DESKBINDER_WORKSPACE_ROOT:-}"
+REPO_PATH=""
+WORKSPACE_PATH=""
+WORKSPACE_NAME=""
+WORKSPACE_LOG=""
+DEV_LOG=""
+DEV_PID=""
+URL=""
+
+log() {
+  printf '[%s] %s\n' "$(date -Is)" "$*" | tee -a "$SETUP_LOG" >&2
+}
+
+emit_json() {
+  RESULT_EMITTED=1
+  python3 - <<'PY' >&3
+import json
+import os
+
+ok = os.environ["DESKBINDER_RESULT_OK"] == "true"
+payload = {
+    "ok": ok,
+    "agentRunnable": os.environ["DESKBINDER_AGENT_RUNNABLE"] == "true",
+    "branchName": os.environ["DESKBINDER_BRANCH_NAME"],
+}
+
+for key, env_name in (
+    ("repoPath", "DESKBINDER_REPO_PATH"),
+    ("workspacePath", "DESKBINDER_WORKSPACE_PATH"),
+    ("workspaceName", "DESKBINDER_WORKSPACE_NAME"),
+    ("baseBranch", "DESKBINDER_BASE_BRANCH"),
+    ("url", "DESKBINDER_URL"),
+    ("failureStep", "DESKBINDER_FAILURE_STEP"),
+    ("errorMessage", "DESKBINDER_ERROR_MESSAGE"),
+):
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        payload[key] = value
+
+port = os.environ.get("DESKBINDER_PORT", "").strip()
+if port:
+    payload["port"] = int(port)
+
+logs = {}
+for key, env_name in (
+    ("workspace", "DESKBINDER_WORKSPACE_LOG"),
+    ("dev", "DESKBINDER_DEV_LOG"),
+):
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        logs[key] = value
+if logs:
+    payload["logs"] = logs
+
+processes = {}
+dev_pid = os.environ.get("DESKBINDER_DEV_PID", "").strip()
+if dev_pid:
+    processes["dev"] = int(dev_pid)
+if processes:
+    payload["processes"] = processes
+
+print(json.dumps(payload, separators=(",", ":")))
+PY
+}
+
+sync_workspace_log() {
+  if [[ -n "$WORKSPACE_LOG" && -d "$WORKSPACE_PATH" ]]; then
+    cp "$SETUP_LOG" "$WORKSPACE_LOG" || true
+  fi
+}
+
+stop_started_processes() {
+  if [[ -n "$DEV_PID" ]] && kill -0 "$DEV_PID" 2>/dev/null; then
+    log "Stopping dev server process after failed setup."
+    kill "$DEV_PID" 2>/dev/null || true
+    sleep 1
+    kill -9 "$DEV_PID" 2>/dev/null || true
+  fi
+}
+
+cleanup_failed_worktree() {
+  if [[ "$WORKTREE_CREATED" != "1" ]]; then
+    return
+  fi
+
+  if [[ "${DESKBINDER_KEEP_FAILED_WORKSPACE:-}" == "1" ]]; then
+    log "Leaving failed workspace in place because DESKBINDER_KEEP_FAILED_WORKSPACE=1."
+    return
+  fi
+
+  log "Cleaning up failed workspace."
+  git -C "$REPO_PATH" worktree remove --force "$WORKSPACE_PATH" >/dev/null 2>&1 || true
+  git -C "$REPO_PATH" branch -D "$BRANCH_NAME" >/dev/null 2>&1 || true
+  git -C "$REPO_PATH" worktree prune >/dev/null 2>&1 || true
+}
+
+fail() {
+  local step="$1"
+  local message="$2"
+
+  stop_started_processes
+  sync_workspace_log
+  cleanup_failed_worktree
+
+  export DESKBINDER_RESULT_OK="false"
+  export DESKBINDER_AGENT_RUNNABLE="false"
+  export DESKBINDER_BRANCH_NAME="$BRANCH_NAME"
+  export DESKBINDER_REPO_PATH="$REPO_PATH"
+  export DESKBINDER_WORKSPACE_PATH=""
+  export DESKBINDER_WORKSPACE_NAME=""
+  export DESKBINDER_BASE_BRANCH="$BASE_REF"
+  export DESKBINDER_PORT=""
+  export DESKBINDER_URL=""
+  export DESKBINDER_WORKSPACE_LOG=""
+  export DESKBINDER_DEV_LOG=""
+  export DESKBINDER_DEV_PID=""
+  export DESKBINDER_FAILURE_STEP="$step"
+  export DESKBINDER_ERROR_MESSAGE="$message"
+  emit_json
+  exit 0
+}
+
+on_exit() {
+  local status=$?
+
+  if [[ "$RESULT_EMITTED" == "1" ]]; then
+    rm -f "$SETUP_LOG"
+    exit "$status"
+  fi
+
+  if [[ "$status" -ne 0 ]]; then
+    fail "$CURRENT_STEP" "Workspace setup failed during ${CURRENT_STEP}."
+  fi
+
+  rm -f "$SETUP_LOG"
+}
+trap on_exit EXIT
+
+require_command() {
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    fail "checkPrerequisites" "Required command is not available: ${command_name}."
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage: new_workspace <branch-name> [options]
+
+Options:
+  --base <ref>              Git ref to branch from. Defaults to BASE_BRANCH or main.
+  --workspace-root <path>   Directory that will contain the new worktree.
+  --skip-install            Create the worktree without running pnpm install.
+  --port <number>           Start the web dev server on the given loopback port.
+EOF
+}
+
+parse_port() {
+  local raw_port="$1"
+
+  if [[ ! "$raw_port" =~ ^[0-9]+$ ]] || (( raw_port < 1 || raw_port > 65535 )); then
+    fail "input_validation" "Port must be an integer between 1 and 65535."
+  fi
+
+  PORT="$raw_port"
+}
+
+CURRENT_STEP="parseArgs"
+BRANCH_NAME="${1:-}"
+if [[ -z "$BRANCH_NAME" ]]; then
+  usage
+  fail "input_validation" "Branch name is required."
+fi
+shift || true
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base|--base-ref)
+      shift
+      if [[ $# -eq 0 || -z "${1:-}" ]]; then
+        fail "input_validation" "--base requires a Git ref."
+      fi
+      BASE_REF="$1"
+      ;;
+    --base=*|--base-ref=*)
+      BASE_REF="${1#*=}"
+      if [[ -z "$BASE_REF" ]]; then
+        fail "input_validation" "--base requires a Git ref."
+      fi
+      ;;
+    --workspace-root)
+      shift
+      if [[ $# -eq 0 || -z "${1:-}" ]]; then
+        fail "input_validation" "--workspace-root requires a path."
+      fi
+      WORKSPACE_ROOT="$1"
+      ;;
+    --workspace-root=*)
+      WORKSPACE_ROOT="${1#*=}"
+      if [[ -z "$WORKSPACE_ROOT" ]]; then
+        fail "input_validation" "--workspace-root requires a path."
+      fi
+      ;;
+    --skip-install)
+      SKIP_INSTALL=1
+      ;;
+    --port)
+      shift
+      if [[ $# -eq 0 || -z "${1:-}" ]]; then
+        fail "input_validation" "--port requires a numeric value."
+      fi
+      parse_port "$1"
+      ;;
+    --port=*)
+      parse_port "${1#*=}"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "input_validation" "Unsupported workspace script argument."
+      ;;
+  esac
+  shift || true
+done
+
+CURRENT_STEP="checkPrerequisites"
+require_command git
+require_command python3
+require_command pnpm
+
+CURRENT_STEP="discoverRepo"
+REPO_PATH="$(git rev-parse --show-toplevel)"
+REPO_PATH="$(cd "$REPO_PATH" && pwd -P)"
+if [[ "$(pwd -P)" != "$REPO_PATH" ]]; then
+  fail "discoverRepo" "Workspace script must be run from the parent repository root."
+fi
+
+CURRENT_STEP="validateBranch"
+if ! git check-ref-format --branch "$BRANCH_NAME" >/dev/null 2>&1; then
+  fail "input_validation" "Branch name is invalid."
+fi
+
+CURRENT_STEP="fetchRemoteRefs"
+if [[ -n "$(git remote)" ]]; then
+  log "Fetching remote refs."
+  git fetch --all --prune >> "$SETUP_LOG" 2>&1
+else
+  log "No Git remotes configured; skipping fetch."
+fi
+
+CURRENT_STEP="resolveBaseBranch"
+if ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
+  if [[ "$BASE_REF" == "main" ]] && git rev-parse --verify --quiet "origin/main^{commit}" >/dev/null; then
+    BASE_REF="origin/main"
+  else
+    fail "resolveBaseBranch" "Base Git ref could not be resolved."
+  fi
+fi
+
+CURRENT_STEP="checkBranchAvailability"
+if git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}"; then
+  fail "checkBranchAvailability" "A local branch with that name already exists."
+fi
+
+if [[ -n "$(git for-each-ref --format='%(refname)' "refs/remotes/*/${BRANCH_NAME}")" ]]; then
+  fail "checkBranchAvailability" "A remote branch with that name already exists."
+fi
+
+CURRENT_STEP="checkWorkspaceTarget"
+PROJECT_NAME="$(basename "$REPO_PATH")"
+SAFE_BRANCH_NAME="$(
+  printf '%s' "$BRANCH_NAME" \
+    | tr '[:upper:]_' '[:lower:]-' \
+    | sed -E 's#[^a-z0-9-]+#-#g; s#^-+##; s#-+$##; s#-+#-#g'
+)"
+if [[ -z "$SAFE_BRANCH_NAME" ]]; then
+  fail "checkWorkspaceTarget" "Branch name must contain at least one letter or number for workspace naming."
+fi
+
+if [[ -z "$WORKSPACE_ROOT" ]]; then
+  WORKSPACE_ROOT="$(dirname "$REPO_PATH")"
+fi
+mkdir -p "$WORKSPACE_ROOT"
+WORKSPACE_ROOT="$(cd "$WORKSPACE_ROOT" && pwd -P)"
+
+WORKSPACE_NAME="${PROJECT_NAME}-${SAFE_BRANCH_NAME}"
+WORKSPACE_PATH="${WORKSPACE_ROOT}/${WORKSPACE_NAME}"
+WORKSPACE_LOG="${WORKSPACE_PATH}/.agent.workspace.log"
+DEV_LOG="${WORKSPACE_PATH}/.agent.dev.log"
+URL=""
+
+if [[ -e "$WORKSPACE_PATH" || -L "$WORKSPACE_PATH" ]]; then
+  fail "worktree_exists" "Workspace path already exists."
+fi
+
+port_available() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("127.0.0.1", port))
+    except OSError:
+        sys.exit(1)
+sys.exit(0)
+PY
+}
+
+if [[ -n "$PORT" ]]; then
+  CURRENT_STEP="checkPort"
+  if ! port_available "$PORT"; then
+    fail "checkPort" "Requested port is already in use."
+  fi
+fi
+
+CURRENT_STEP="createWorktree"
+log "Creating worktree ${WORKSPACE_NAME} from ${BASE_REF}."
+git worktree add -b "$BRANCH_NAME" "$WORKSPACE_PATH" "$BASE_REF" >> "$SETUP_LOG" 2>&1
+WORKTREE_CREATED=1
+
+CURRENT_STEP="copyWorkspaceEnv"
+copied_env_count=0
+while IFS= read -r -d '' env_source; do
+  env_relative_path="${env_source#"$REPO_PATH"/}"
+  if [[ "$env_relative_path" == "$env_source" || -z "$env_relative_path" ]]; then
+    continue
+  fi
+
+  env_target="$WORKSPACE_PATH/$env_relative_path"
+  mkdir -p "$(dirname "$env_target")"
+  cp "$env_source" "$env_target"
+  chmod 600 "$env_target" || true
+  copied_env_count=$((copied_env_count + 1))
+done < <(
+  find "$REPO_PATH" \
+    \( -type d \( \
+      -name .git \
+      -o -name node_modules \
+      -o -name out \
+      -o -name dist \
+      -o -name coverage \
+      -o -name .next \
+      -o -name .turbo \
+      -o -name .vite \
+    \) -prune \) \
+    -o -type f \( \
+      -name .env \
+      -o -name '.env.*' \
+      -o -name .agent.clerk.env \
+    \) -print0
+)
+log "Copied ${copied_env_count} workspace env file(s)."
+
+CURRENT_STEP="writeWorkspaceMetadata"
+{
+  printf 'WORKSPACE=%s\n' "$WORKSPACE_PATH"
+  printf 'BRANCH=%s\n' "$BRANCH_NAME"
+  printf 'PROJECT_ROOT=%s\n' "$REPO_PATH"
+  printf 'LOG_FILE=%s\n' "$WORKSPACE_LOG"
+  if [[ -n "$PORT" ]]; then
+    URL="http://localhost:${PORT}"
+    printf 'PORT=%s\n' "$PORT"
+    printf 'URL=%s\n' "$URL"
+    printf 'PID_FILE=%s\n' "$WORKSPACE_PATH/.agent.pid"
+    printf 'DEV_LOG_FILE=%s\n' "$DEV_LOG"
+  fi
+} > "$WORKSPACE_PATH/.agent.env"
+chmod 600 "$WORKSPACE_PATH/.agent.env" || true
+
+if [[ "$SKIP_INSTALL" == "0" ]]; then
+  CURRENT_STEP="installDependencies"
+  log "Installing dependencies with pnpm."
+  (
+    cd "$WORKSPACE_PATH"
+    CI=1 pnpm install --frozen-lockfile --prefer-offline
+  ) >> "$SETUP_LOG" 2>&1
+else
+  log "Skipping dependency install because --skip-install was provided."
+fi
+
+detect_listening_pid() {
+  local port="$1"
+  local detected_pid=""
+
+  if command -v lsof >/dev/null 2>&1; then
+    detected_pid="$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+  elif command -v ss >/dev/null 2>&1; then
+    detected_pid="$(
+      ss -H -ltnp "sport = :$port" 2>/dev/null \
+        | sed -nE 's/.*pid=([0-9]+).*/\1/p' \
+        | head -n 1 \
+        || true
+    )"
+  fi
+
+  if [[ "$detected_pid" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$detected_pid"
+  fi
+}
+
+process_cwd_is_in_workspace() {
+  local pid="$1"
+  local cwd_path=""
+
+  cwd_path="$(readlink -f "/proc/${pid}/cwd" 2>/dev/null || true)"
+  [[ -z "$cwd_path" || "$cwd_path" == "$WORKSPACE_PATH" || "$cwd_path" == "$WORKSPACE_PATH/"* ]]
+}
+
+if [[ -n "$PORT" ]]; then
+  CURRENT_STEP="startDevServer"
+  if ! port_available "$PORT"; then
+    fail "checkPort" "Requested port is already in use."
+  fi
+
+  log "Starting web dev server on ${URL}."
+  (
+    cd "$WORKSPACE_PATH"
+    nohup pnpm --filter @deskbinder/web run dev --hostname 127.0.0.1 --port "$PORT" \
+      > "$DEV_LOG" 2>&1 &
+    printf '%s\n' "$!" > .agent.pid
+  )
+  DEV_PID="$(cat "$WORKSPACE_PATH/.agent.pid")"
+
+  for _ in $(seq 1 30); do
+    if ! kill -0 "$DEV_PID" 2>/dev/null; then
+      fail "startDevServer" "Dev server exited before it became ready."
+    fi
+
+    if ! port_available "$PORT"; then
+      LISTENER_PID="$(detect_listening_pid "$PORT")"
+      if [[ -n "$LISTENER_PID" ]] && process_cwd_is_in_workspace "$LISTENER_PID"; then
+        DEV_PID="$LISTENER_PID"
+      fi
+      break
+    fi
+
+    sleep 1
+  done
+
+  if port_available "$PORT"; then
+    fail "startDevServer" "Dev server did not start listening on the requested port."
+  fi
+fi
+
+CURRENT_STEP="verifyWorkspace"
+WORKTREE_TOPLEVEL="$(git -C "$WORKSPACE_PATH" rev-parse --show-toplevel)"
+WORKTREE_TOPLEVEL="$(cd "$WORKTREE_TOPLEVEL" && pwd -P)"
+if [[ "$WORKTREE_TOPLEVEL" != "$WORKSPACE_PATH" ]]; then
+  fail "verifyWorkspace" "Created workspace is not a Git repository root."
+fi
+
+GIT_DIR="$(git -C "$WORKSPACE_PATH" rev-parse --path-format=absolute --git-dir)"
+GIT_COMMON_DIR="$(git -C "$WORKSPACE_PATH" rev-parse --path-format=absolute --git-common-dir)"
+if [[ "$GIT_DIR" == "$GIT_COMMON_DIR" ]]; then
+  fail "verifyWorkspace" "Created workspace is not a Git worktree."
+fi
+
+sync_workspace_log
+
+export DESKBINDER_RESULT_OK="true"
+export DESKBINDER_AGENT_RUNNABLE="true"
+export DESKBINDER_REPO_PATH="$REPO_PATH"
+export DESKBINDER_WORKSPACE_PATH="$WORKSPACE_PATH"
+export DESKBINDER_WORKSPACE_NAME="$WORKSPACE_NAME"
+export DESKBINDER_BRANCH_NAME="$BRANCH_NAME"
+export DESKBINDER_BASE_BRANCH="$BASE_REF"
+export DESKBINDER_PORT="$PORT"
+export DESKBINDER_URL="$URL"
+export DESKBINDER_WORKSPACE_LOG="$WORKSPACE_LOG"
+export DESKBINDER_DEV_LOG="${PORT:+$DEV_LOG}"
+export DESKBINDER_DEV_PID="$DEV_PID"
+export DESKBINDER_FAILURE_STEP=""
+export DESKBINDER_ERROR_MESSAGE=""
+emit_json

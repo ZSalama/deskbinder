@@ -296,6 +296,10 @@ export class ConvexRepoStore {
     return desktopRepoToRepoSettings(repo)
   }
 
+  async getRepoForDeletion(localRepoId: string): Promise<RepoSettings> {
+    return desktopRepoToRepoSettings(await this.getRepoSummary(localRepoId))
+  }
+
   async syncRepoStates(): Promise<DesktopRepoSummary[]> {
     const workerId = await this.getWorkerId()
     await this.registerWorker()

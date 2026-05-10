@@ -16,6 +16,9 @@ const api: DeskbinderApi = {
   runWorkspaceScript: (input) => ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceScript, input),
   runWorkspaceScripts: (input) => ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceScripts, input),
   deleteWorkspace: (input) => ipcRenderer.invoke(IPC_CHANNELS.deleteWorkspace, input),
+  getDevEnvironmentStatus: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getDevEnvironmentStatus, input),
+  openDevEnvironment: (input) => ipcRenderer.invoke(IPC_CHANNELS.openDevEnvironment, input),
   runAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.runAgent, input),
   cancelAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.cancelAgent, input),
   onAgentEvent: (handler) => {

@@ -169,6 +169,16 @@ export async function collectTrackedWorkspaceProcesses(
     }))
 }
 
+export async function isTrackedWorkspaceProcessLive(
+  repoPath: string,
+  trackedProcess: TrackedWorkspaceProcess
+): Promise<boolean> {
+  const normalizedRepoPath = normalizePath(repoPath)
+  const processInfo = await readProcessInfo(trackedProcess.pid)
+
+  return processInfo ? matchesTrackedProcess(processInfo, trackedProcess, normalizedRepoPath) : false
+}
+
 export async function terminateTrackedWorkspaceProcesses(
   repoPath: string,
   trackedProcesses: TrackedWorkspaceProcess[] | undefined

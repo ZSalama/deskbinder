@@ -23,6 +23,7 @@ import { useRepoStateSync } from '../../hooks/useRepoStateSync'
 import { useWorkerHeartbeat } from '../../hooks/useWorkerHeartbeat'
 import { useBranchRequestRunner } from '../../hooks/useBranchRequestRunner'
 import { useRemoteAgentJobRunner } from '../../hooks/useRemoteAgentJobRunner'
+import { useDevEnvironmentStatus } from '../../hooks/useDevEnvironmentStatus'
 
 function getPathBasename(path: string): string {
   const normalizedPath = path.replace(/\/+$/, '')
@@ -155,6 +156,7 @@ export function DashboardLayout(): React.JSX.Element {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isRunWorkspaceDialogOpen, setIsRunWorkspaceDialogOpen] = useState(false)
   const [isRunningWorkspaceScript, setIsRunningWorkspaceScript] = useState(false)
+  const [isOpeningDevEnvironment, setIsOpeningDevEnvironment] = useState(false)
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
   const [bridgeError, setBridgeError] = useState<string | null>(initialBridgeError)
   const [desktopConvexSessionKey, setDesktopConvexSessionKey] = useState<string | null>(null)
@@ -196,6 +198,15 @@ export function DashboardLayout(): React.JSX.Element {
     deviceConfig,
     desktopApi,
     enabled: isDesktopConvexSessionAvailable
+  })
+  const {
+    status: devEnvironmentStatus,
+    error: devEnvironmentStatusError,
+    refresh: refreshDevEnvironmentStatus
+  } = useDevEnvironmentStatus({
+    desktopApi,
+    enabled: isDesktopConvexSessionAvailable,
+    repoId: activeRepo?.id ?? null
   })
   const handleRemoteBranchNotice = useCallback((notice: RepoSetupNotice) => {
     setRepoSetupNotice(notice)
@@ -622,6 +633,38 @@ export function DashboardLayout(): React.JSX.Element {
     setIsRunWorkspaceDialogOpen(true)
   }
 
+  async function handleOpenDevEnvironment(): Promise<void> {
+    if (!activeRepo) {
+      return
+    }
+
+    setIsOpeningDevEnvironment(true)
+
+    try {
+      const response = await getDesktopApi().openDevEnvironment({
+        repoId: activeRepo.id
+      })
+
+      if (!response.ok) {
+        setRepoSetupNotice({
+          tone: 'warning',
+          message: response.errorMessage
+        })
+      } else {
+        setRepoSetupNotice(null)
+      }
+
+      await refreshDevEnvironmentStatus()
+    } catch (error) {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to open dev environment.'
+      })
+    } finally {
+      setIsOpeningDevEnvironment(false)
+    }
+  }
+
   async function handleRunWorkspaceScripts({
     autoStartDevEnvironment,
     workspaces
@@ -897,9 +940,12 @@ export function DashboardLayout(): React.JSX.Element {
               activeRepo={activeRepo}
               authEmail={user?.primaryEmailAddress?.emailAddress ?? null}
               authReady={isAuthenticated}
+              devEnvironmentStatus={devEnvironmentStatus}
               isAgentRunning={activeRepoHasAgentRun}
+              isOpeningDevEnvironment={isOpeningDevEnvironment}
               isRunningWorkspaceScript={isRunningWorkspaceScript}
               onCancelAgent={() => void handleCancelAgent()}
+              onOpenDevEnvironment={() => void handleOpenDevEnvironment()}
               onNewWorkspace={handleOpenRunWorkspaceDialog}
             />
 
@@ -926,6 +972,12 @@ export function DashboardLayout(): React.JSX.Element {
             {repoMetadataSyncError ? (
               <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
                 {repoMetadataSyncError}
+              </div>
+            ) : null}
+
+            {devEnvironmentStatusError ? (
+              <div className="border-b border-amber-300/12 bg-amber-300/7 px-6 py-3 text-sm text-amber-50">
+                {devEnvironmentStatusError}
               </div>
             ) : null}
 

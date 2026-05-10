@@ -7,7 +7,11 @@ import type {
   DeleteWorkspaceInput,
   DeleteWorkspaceResponse,
   DesktopRepoSummary,
+  DevEnvironmentStatus,
+  GetDevEnvironmentStatusInput,
   LocalDeviceConfig,
+  OpenDevEnvironmentInput,
+  OpenDevEnvironmentResponse,
   RunAgentInput,
   RunAgentResponse,
   RunWorkspaceScriptInput,
@@ -41,6 +45,10 @@ export interface DeskbinderApi {
   runWorkspaceScript: (input: RunWorkspaceScriptInput) => Promise<RunWorkspaceScriptResponse>
   runWorkspaceScripts: (input: RunWorkspaceScriptsInput) => Promise<RunWorkspaceScriptsResponse>
   deleteWorkspace: (input: DeleteWorkspaceInput) => Promise<DeleteWorkspaceResponse>
+  getDevEnvironmentStatus: (
+    input: GetDevEnvironmentStatusInput
+  ) => Promise<DevEnvironmentStatus>
+  openDevEnvironment: (input: OpenDevEnvironmentInput) => Promise<OpenDevEnvironmentResponse>
   runAgent: (input: RunAgentInput) => Promise<RunAgentResponse>
   cancelAgent: (input: CancelAgentRunInput) => Promise<CancelAgentRunResponse>
   onAgentEvent: (handler: (event: AgentRunEvent) => void) => () => void

@@ -5,6 +5,7 @@ import type { App } from 'electron'
 import type {
   DeskbinderConfig,
   LocalDeviceConfig,
+  TrackedDevEnvironment,
   TrackedWorkspace,
   TrackedWorkspaceProcess
 } from '@deskbinder/shared/deskbinder'
@@ -42,43 +43,76 @@ function normalizeOptionalPath(value: string | undefined): string {
   return normalize(isAbsolute(trimmed) ? trimmed : resolve(trimmed))
 }
 
+function sanitizePort(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 65535) {
+    return null
+  }
+
+  return value
+}
+
+function sanitizeTrackedWorkspaceProcess(value: unknown): TrackedWorkspaceProcess | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const entry = value as Record<string, unknown>
+  const pid = entry.pid
+  const startTimeTicks = entry.startTimeTicks
+  const cwdPath = sanitizeString(entry.cwdPath)
+
+  if (
+    typeof pid !== 'number' ||
+    !Number.isInteger(pid) ||
+    pid <= 1 ||
+    typeof startTimeTicks !== 'number' ||
+    !Number.isFinite(startTimeTicks) ||
+    startTimeTicks <= 0
+  ) {
+    return null
+  }
+
+  const nextValue: TrackedWorkspaceProcess = {
+    pid,
+    startTimeTicks
+  }
+
+  if (cwdPath) {
+    nextValue.cwdPath = normalizeOptionalPath(cwdPath)
+  }
+
+  return nextValue
+}
+
 function sanitizeTrackedWorkspaceProcesses(value: unknown): TrackedWorkspaceProcess[] | undefined {
   if (!Array.isArray(value)) {
     return undefined
   }
 
   const nextValues = value
-    .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
-    .map((entry) => {
-      const pid = entry.pid
-      const startTimeTicks = entry.startTimeTicks
-      const cwdPath = sanitizeString(entry.cwdPath)
-
-      if (
-        typeof pid !== 'number' ||
-        !Number.isInteger(pid) ||
-        pid <= 1 ||
-        typeof startTimeTicks !== 'number' ||
-        !Number.isFinite(startTimeTicks) ||
-        startTimeTicks <= 0
-      ) {
-        return null
-      }
-
-      const nextValue: TrackedWorkspaceProcess = {
-        pid,
-        startTimeTicks
-      }
-
-      if (cwdPath) {
-        nextValue.cwdPath = normalizeOptionalPath(cwdPath)
-      }
-
-      return nextValue
-    })
+    .map(sanitizeTrackedWorkspaceProcess)
     .filter((entry): entry is TrackedWorkspaceProcess => entry !== null)
 
   return nextValues.length > 0 ? nextValues : undefined
+}
+
+function sanitizeTrackedDevEnvironment(value: unknown): TrackedDevEnvironment | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const record = value as Record<string, unknown>
+  const port = sanitizePort(record.port)
+  const trackedProcess = sanitizeTrackedWorkspaceProcess(record.process)
+
+  if (port === null || !trackedProcess) {
+    return undefined
+  }
+
+  return {
+    port,
+    process: trackedProcess
+  }
 }
 
 function sanitizeTrackedWorkspace(value: unknown): TrackedWorkspace | null {
@@ -92,6 +126,7 @@ function sanitizeTrackedWorkspace(value: unknown): TrackedWorkspace | null {
   const sourceRepoPath = normalizeOptionalPath(sanitizeString(record.sourceRepoPath) ?? undefined)
   const workspaceBranchName = sanitizeString(record.workspaceBranchName) ?? undefined
   const workspaceProcesses = sanitizeTrackedWorkspaceProcesses(record.workspaceProcesses)
+  const devEnvironment = sanitizeTrackedDevEnvironment(record.devEnvironment)
 
   if (!repoId || !repoPath) {
     return null
@@ -102,7 +137,8 @@ function sanitizeTrackedWorkspace(value: unknown): TrackedWorkspace | null {
     repoPath,
     sourceRepoPath: sourceRepoPath || undefined,
     workspaceBranchName,
-    workspaceProcesses
+    workspaceProcesses,
+    devEnvironment
   }
 }
 
@@ -229,7 +265,7 @@ export class LocalConfigStore {
       ...currentConfig,
       trackedWorkspaces: currentConfig.trackedWorkspaces.map((workspace) =>
         targetRepoIds.has(workspace.repoId)
-          ? { ...workspace, workspaceProcesses: undefined }
+          ? { ...workspace, workspaceProcesses: undefined, devEnvironment: undefined }
           : workspace
       )
     }

@@ -11,6 +11,8 @@ export const IPC_CHANNELS = {
   runWorkspaceScript: 'v1.workspace.runScript',
   runWorkspaceScripts: 'v1.workspace.runScripts',
   deleteWorkspace: 'v1.workspace.delete',
+  getDevEnvironmentStatus: 'v1.workspace.devEnvironment.status',
+  openDevEnvironment: 'v1.workspace.devEnvironment.open',
   runAgent: 'v1.agent.run',
   cancelAgent: 'v1.agent.cancel',
   agentEvent: 'v1.agent.event'

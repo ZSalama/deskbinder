@@ -21,6 +21,10 @@ import { AgentRunner } from './services/agentRunner'
 import { findAvailableAutoDevPort, runWorkspaceScript } from './services/workspaceScript'
 import { ConvexSession } from './services/convexSession'
 import { ConvexRepoStore, desktopRepoToRepoSettings } from './services/convexRepoStore'
+import {
+  getDevEnvironmentStatus,
+  openDevEnvironment
+} from './services/devEnvironment'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
 
@@ -104,6 +108,10 @@ function getBooleanInput(input: unknown, key: string): boolean {
   }
 
   return (input as Record<string, unknown>)[key] === true
+}
+
+function isValidPort(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535
 }
 
 function getOptionalStringInput(
@@ -327,13 +335,31 @@ async function runAndRegisterWorkspace({
           (pid): pid is number => typeof pid === 'number' && Number.isInteger(pid) && pid > 1
         )
       )
+      const devProcesses = await collectTrackedWorkspaceProcesses(
+        result.workspacePath,
+        typeof result.processes?.dev === 'number' ? [result.processes.dev] : []
+      )
+      const devPort = isValidPort(result.port)
+        ? result.port
+        : isValidPort(autoDevPort)
+          ? autoDevPort
+          : undefined
+      const devProcess = devProcesses[0]
+      const devEnvironment =
+        devPort !== undefined && devProcess && devProcesses.length === 1
+          ? {
+              port: devPort,
+              process: devProcess
+            }
+          : undefined
 
       await localConfigStore?.trackWorkspace({
         repoId: registration.localRepoId,
         repoPath: registration.repoPath,
         sourceRepoPath: sourceRepo.repoPath,
         workspaceBranchName: registration.workspaceBranchName,
-        workspaceProcesses
+        workspaceProcesses,
+        devEnvironment
       })
 
       return {
@@ -749,7 +775,7 @@ app.whenReady().then(() => {
       throw new Error('Invalid workspace selection.')
     }
 
-    const repo = await convexRepoStore.getRepoForExecution(repoId)
+    const repo = await convexRepoStore.getRepoForDeletion(repoId)
     const localTrackedRepo = localConfigStore
       ? (await localConfigStore.read()).trackedWorkspaces.find(
           (currentRepo) => currentRepo.repoId === repo.id
@@ -775,6 +801,49 @@ app.whenReady().then(() => {
         }
       }
     })
+  })
+  ipcMain.handle(IPC_CHANNELS.getDevEnvironmentStatus, async (_, input) => {
+    const repoId = getStringInput(input, 'repoId')
+
+    if (!convexRepoStore || !localConfigStore) {
+      return {
+        running: false,
+        repoId,
+        reason: 'repo_unavailable'
+      }
+    }
+
+    return getDevEnvironmentStatus(
+      { repoId },
+      {
+        convexRepoStore,
+        localConfigStore
+      }
+    )
+  })
+  ipcMain.handle(IPC_CHANNELS.openDevEnvironment, async (_, input) => {
+    const repoId = getStringInput(input, 'repoId')
+
+    if (!convexRepoStore || !localConfigStore) {
+      return {
+        ok: false,
+        errorMessage: 'Repository is unavailable.',
+        status: {
+          running: false,
+          repoId,
+          reason: 'repo_unavailable'
+        }
+      }
+    }
+
+    return openDevEnvironment(
+      { repoId },
+      {
+        convexRepoStore,
+        localConfigStore,
+        openExternal: (url) => shell.openExternal(url)
+      }
+    )
   })
   ipcMain.handle(IPC_CHANNELS.runAgent, async (event, input) => {
     if (!agentRunner) {

@@ -177,12 +177,9 @@ export async function deleteWorkspaceForRepo({
   }>
 }): Promise<DeleteWorkspaceResponse> {
   const worktreeDetails = await inspectWorktreeRepo(repo.repoPath)
+  const configuredRepoPathExists = await pathExists(repo.repoPath)
 
-  if (worktreeDetails === null && !repo.sourceRepoPath && !repo.workspaceBranchName) {
-    throw new Error('Delete workspace is only available for Git worktrees.')
-  }
-
-  if (worktreeDetails === null && (await pathExists(repo.repoPath))) {
+  if (worktreeDetails === null && configuredRepoPathExists) {
     throw new Error('Delete workspace is only available for Git worktrees.')
   }
 
@@ -217,7 +214,7 @@ export async function deleteWorkspaceForRepo({
     repoPath,
     repo.workspaceProcesses
   )
-  const repoPathExists = await pathExists(repoPath)
+  const repoPathExists = worktreeDetails ? await pathExists(repoPath) : configuredRepoPathExists
   let folderDeleted = !repoPathExists
 
   if (repoPathExists && sourceRepoPath) {
@@ -286,7 +283,11 @@ export async function deleteWorkspaceForRepo({
     killedProcessCount > 0
       ? `Stopped ${killedProcessCount} related process${killedProcessCount === 1 ? '' : 'es'}`
       : 'No related processes were running',
-    folderDeleted ? 'deleted the workspace folder' : 'workspace folder deletion was skipped',
+    repoPathExists
+      ? folderDeleted
+        ? 'deleted the workspace folder'
+        : 'workspace folder deletion was skipped'
+      : 'workspace folder was already missing',
     worktreePruned ? 'pruned the worktree metadata' : 'worktree prune was skipped',
     branchDeleted ? 'deleted the branch' : 'branch deletion was skipped'
   ]

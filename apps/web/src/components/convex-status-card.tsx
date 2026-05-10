@@ -20,12 +20,14 @@ import {
   GitBranch,
   Loader2,
   LogOut,
+  Menu,
   Monitor,
   Plus,
   SendHorizontal,
-  Workflow
+  Workflow,
+  X
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ConvexProviders } from './providers'
 
 const WORKER_ONLINE_THRESHOLD_MS = 90_000
@@ -537,6 +539,8 @@ function RemoteDashboard({
   const [draftPrompt, setDraftPrompt] = useState('')
   const [isSubmittingAgentJob, setIsSubmittingAgentJob] = useState(false)
   const [remoteNotice, setRemoteNotice] = useState<RemoteNotice | null>(null)
+  const [isNavOpen, setIsNavOpen] = useState(false)
+  const closeNav = useCallback(() => setIsNavOpen(false), [])
   const selectedWorker = useMemo(
     () => workers?.find((worker) => worker.workerId === selectedWorkerId) ?? null,
     [selectedWorkerId, workers]
@@ -656,74 +660,79 @@ function RemoteDashboard({
 
   return (
     <>
-      <section className="flex min-h-dvh w-full flex-col lg:h-dvh lg:min-w-[1024px] lg:overflow-hidden">
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[352px_minmax(0,1fr)]">
-          <RemoteSidebar
-            now={now}
-            onNewBranch={setRepoForBranchRequest}
-            repos={repos}
-            selectedRepoKey={selectedRepoKey}
-            selectedWorkerId={selectedWorkerId}
-            setSelectedRepoKey={setSelectedRepoKey}
-            setSelectedWorkerId={setSelectedWorkerId}
-            viewerName={viewerName}
-            workers={workers}
+      <section className="relative flex min-h-dvh w-full flex-col overflow-hidden bg-[#080d14]">
+        <RemoteSidebar
+          isOpen={isNavOpen}
+          now={now}
+          onClose={closeNav}
+          onNewBranch={(repo) => {
+            setRepoForBranchRequest(repo)
+            setIsNavOpen(false)
+          }}
+          repos={repos}
+          selectedRepoKey={selectedRepoKey}
+          selectedWorkerId={selectedWorkerId}
+          setSelectedRepoKey={(repoKey) => {
+            setSelectedRepoKey(repoKey)
+            setIsNavOpen(false)
+          }}
+          setSelectedWorkerId={setSelectedWorkerId}
+          viewerName={viewerName}
+          workers={workers}
+        />
+
+        <section className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-[#080d14]/94 backdrop-blur-2xl">
+          <WorkspaceHeader
+            isLoading={isLoading}
+            onOpenNav={() => setIsNavOpen(true)}
+            selectedRepo={selectedRepo}
+            selectedWorker={selectedWorker}
+            selectedWorkerStatus={selectedWorkerStatus}
           />
 
-          <section className="flex min-h-0 flex-col overflow-hidden border-t border-white/10 bg-[#080d14]/88 shadow-[inset_1px_0_0_rgba(255,255,255,0.03)] backdrop-blur-2xl lg:border-l lg:border-t-0">
-            <WorkspaceHeader
-              isLoading={isLoading}
-              selectedRepo={selectedRepo}
-              selectedWorker={selectedWorker}
-              selectedWorkerStatus={selectedWorkerStatus}
+          {!isLoading && workers.length === 0 ? (
+            <Notice
+              tone="warning"
+              message="Open the desktop app with this account to register a worker."
             />
+          ) : null}
 
-            {!isLoading && workers.length === 0 ? (
-              <Notice
-                tone="warning"
-                message="Open the desktop app with this account to register a worker."
-              />
-            ) : null}
-
-            {selectedWorker && selectedWorkerStatus === 'Offline' ? (
-              <Notice
-                tone="warning"
-                message="This desktop worker is offline. Start the Electron app before issuing local environment commands."
-              />
-            ) : null}
-
-            {remoteNotice ? (
-              <Notice tone={remoteNotice.tone} message={remoteNotice.message} />
-            ) : null}
-
-            {activeAgentJob ? (
-              <Notice tone="success" message={getAgentJobNotice(activeAgentJob)} />
-            ) : null}
-
-            <main className="min-h-0 flex-1 overflow-y-auto">
-              {isLoading ? (
-                <CenteredStatus compact message="Loading desktop state..." />
-              ) : selectedRepo && selectedWorker ? (
-                <WorkspacePanel
-                  agentJobs={agentJobs ?? []}
-                  onAnswerHumanInputRequest={(requestId, responseText) =>
-                    void handleAnswerHumanInputRequest(requestId, responseText)
-                  }
-                />
-              ) : (
-                <EmptyWorkspaceState hasWorkers={Boolean(workers.length)} />
-              )}
-            </main>
-
-            <PromptComposer
-              disabled={!canSubmitAgentJob}
-              isSubmitting={isSubmittingAgentJob}
-              onSubmit={() => void handleSubmitPrompt()}
-              prompt={draftPrompt}
-              setPrompt={setDraftPrompt}
+          {selectedWorker && selectedWorkerStatus === 'Offline' ? (
+            <Notice
+              tone="warning"
+              message="This desktop worker is offline. Start the Electron app before issuing local environment commands."
             />
-          </section>
-        </div>
+          ) : null}
+
+          {remoteNotice ? <Notice tone={remoteNotice.tone} message={remoteNotice.message} /> : null}
+
+          {activeAgentJob ? (
+            <Notice tone="success" message={getAgentJobNotice(activeAgentJob)} />
+          ) : null}
+
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {isLoading ? (
+              <CenteredStatus compact message="Loading desktop state..." />
+            ) : selectedRepo && selectedWorker ? (
+              <WorkspacePanel
+                agentJobs={agentJobs ?? []}
+                onAnswerHumanInputRequest={(requestId, responseText) =>
+                  void handleAnswerHumanInputRequest(requestId, responseText)
+                }
+              />
+            ) : (
+              <EmptyWorkspaceState hasWorkers={Boolean(workers.length)} />
+            )}
+          </main>
+
+          <PromptComposer
+            disabled={!canSubmitAgentJob}
+            isSubmitting={isSubmittingAgentJob}
+            onSubmit={() => void handleSubmitPrompt()}
+            prompt={draftPrompt}
+            setPrompt={setDraftPrompt}
+          />
+        </section>
       </section>
 
       <BranchRequestDialog
@@ -742,7 +751,9 @@ function RemoteDashboard({
 }
 
 function RemoteSidebar({
+  isOpen,
   now,
+  onClose,
   onNewBranch,
   repos,
   selectedRepoKey,
@@ -752,7 +763,9 @@ function RemoteSidebar({
   viewerName,
   workers
 }: {
+  isOpen: boolean
   now: number
+  onClose: () => void
   onNewBranch: (repo: DesktopRepoSummary) => void
   repos: DesktopRepoSummary[] | null
   selectedRepoKey: string | null
@@ -766,151 +779,204 @@ function RemoteSidebar({
   const repoGroups = buildRepoGroups(workerRepos)
   const canRequestBranch = Boolean(selectedWorkerId)
 
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, onClose])
+
   return (
-    <aside className="flex min-h-0 min-w-0 flex-col bg-[#0a0f17]/92 lg:h-full">
-      <div className="border-b border-white/10 px-6 py-6">
-        <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-lg border border-blue-400/20 bg-blue-500/18 text-blue-100 shadow-[0_10px_30px_rgba(37,99,235,0.18)]">
-            <Workflow className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-xl font-semibold tracking-tight text-white">
-                Deskbinder
-              </h1>
-              <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-slate-400">
-                web
-              </span>
+    <>
+      <button
+        aria-label="Close navigation"
+        aria-hidden={!isOpen}
+        className={joinClassNames(
+          'fixed inset-0 z-30 bg-black/56 backdrop-blur-sm transition-opacity',
+          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        )}
+        onClick={onClose}
+        tabIndex={isOpen ? 0 : -1}
+        type="button"
+      />
+
+      <aside
+        aria-label="Deskbinder navigation"
+        aria-hidden={!isOpen}
+        className={joinClassNames(
+          'fixed inset-y-0 left-0 z-40 flex w-[min(22.5rem,calc(100vw-1.5rem))] min-w-0 flex-col border-r border-white/10 bg-[#0a0f17]/98 shadow-[24px_0_80px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out',
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+        inert={!isOpen ? true : undefined}
+      >
+        <div className="border-b border-white/10 px-4 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-11 items-center justify-center rounded-lg border border-blue-400/20 bg-blue-500/18 text-blue-100 shadow-[0_10px_30px_rgba(37,99,235,0.18)]">
+              <Workflow className="size-5" />
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="space-y-6 pb-4">
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-3 px-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                Desktop Workers
-              </p>
-              <span className="text-xs text-slate-500">{workers ? workers.length : '-'}</span>
-            </div>
-
-            {!workers ? (
-              <SidebarLoadingRows />
-            ) : workers.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
-                No workers registered.
-              </p>
-            ) : (
-              workers.map((worker) => (
-                <WorkerButton
-                  key={worker.workerId}
-                  now={now}
-                  onSelect={setSelectedWorkerId}
-                  repoCount={repos?.filter((repo) => repo.workerId === worker.workerId).length ?? 0}
-                  selected={worker.workerId === selectedWorkerId}
-                  worker={worker}
-                />
-              ))
-            )}
-          </section>
-
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-3 px-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                Repositories
-              </p>
-              <span className="text-xs text-slate-500">{repos ? repoGroups.length : '-'}</span>
-            </div>
-
-            {!repos ? (
-              <SidebarLoadingRows />
-            ) : repoGroups.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
-                No synced repositories.
-              </p>
-            ) : (
-              <div className="space-y-5">
-                {repoGroups.map((group) => (
-                  <section key={group.id} className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        className="flex min-w-0 items-center gap-2 text-left text-sm font-semibold text-slate-100"
-                        onClick={() => setSelectedRepoKey(getRepoKey(group.root))}
-                        type="button"
-                      >
-                        <ChevronDown className="size-4 shrink-0 text-slate-500" />
-                        <Folder className="size-5 shrink-0 text-slate-300" />
-                        <span className="truncate">{group.name}</span>
-                      </button>
-
-                      <button
-                        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.035] px-2 text-xs text-slate-300 hover:bg-white/[0.075] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                        disabled={!canRequestBranch}
-                        onClick={() => onNewBranch(group.root)}
-                        type="button"
-                      >
-                        <Plus className="size-3.5" />
-                        New Branch
-                      </button>
-                    </div>
-
-                    <div className="ml-[30px] border-l border-white/10 pl-0">
-                      {group.branches.map((repo) => (
-                        <RepoButton
-                          key={getRepoKey(repo)}
-                          onSelect={setSelectedRepoKey}
-                          repo={repo}
-                          selected={getRepoKey(repo) === selectedRepoKey}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="truncate text-xl font-semibold tracking-tight text-white">
+                  Deskbinder
+                </h1>
+                <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-slate-400">
+                  web
+                </span>
               </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      <div className="space-y-3 border-t border-white/10 px-5 py-5">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-200">Remote control</p>
-            <p className="truncate text-xs text-slate-500">Desktop app owns local execution</p>
-          </div>
-          <span className="rounded-full border border-emerald-400/20 bg-emerald-400/8 px-2 py-1 text-xs text-emerald-300">
-            Synced
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-800 text-sm font-medium text-slate-200">
-              {getInitials(viewerName ?? 'Deskbinder User') || 'DB'}
             </div>
+            <button
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.035] text-slate-300 transition-colors hover:bg-white/[0.075] hover:text-white"
+              onClick={onClose}
+              type="button"
+            >
+              <X className="size-5" />
+              <span className="sr-only">Close navigation</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="space-y-6 pb-4">
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Desktop Workers
+                </p>
+                <span className="text-xs text-slate-500">{workers ? workers.length : '-'}</span>
+              </div>
+
+              {!workers ? (
+                <SidebarLoadingRows />
+              ) : workers.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
+                  No workers registered.
+                </p>
+              ) : (
+                workers.map((worker) => (
+                  <WorkerButton
+                    key={worker.workerId}
+                    now={now}
+                    onSelect={setSelectedWorkerId}
+                    repoCount={
+                      repos?.filter((repo) => repo.workerId === worker.workerId).length ?? 0
+                    }
+                    selected={worker.workerId === selectedWorkerId}
+                    worker={worker}
+                  />
+                ))
+              )}
+            </section>
+
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Repositories
+                </p>
+                <span className="text-xs text-slate-500">{repos ? repoGroups.length : '-'}</span>
+              </div>
+
+              {!repos ? (
+                <SidebarLoadingRows />
+              ) : repoGroups.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
+                  No synced repositories.
+                </p>
+              ) : (
+                <div className="space-y-5">
+                  {repoGroups.map((group) => (
+                    <section key={group.id} className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          className="flex min-w-0 items-center gap-2 text-left text-sm font-semibold text-slate-100"
+                          onClick={() => setSelectedRepoKey(getRepoKey(group.root))}
+                          type="button"
+                        >
+                          <ChevronDown className="size-4 shrink-0 text-slate-500" />
+                          <Folder className="size-5 shrink-0 text-slate-300" />
+                          <span className="truncate">{group.name}</span>
+                        </button>
+
+                        <button
+                          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.035] px-2 text-xs text-slate-300 hover:bg-white/[0.075] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                          disabled={!canRequestBranch}
+                          onClick={() => onNewBranch(group.root)}
+                          type="button"
+                        >
+                          <Plus className="size-3.5" />
+                          New Branch
+                        </button>
+                      </div>
+
+                      <div className="ml-[30px] border-l border-white/10 pl-0">
+                        {group.branches.map((repo) => (
+                          <RepoButton
+                            key={getRepoKey(repo)}
+                            onSelect={setSelectedRepoKey}
+                            repo={repo}
+                            selected={getRepoKey(repo) === selectedRepoKey}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+
+        <div className="space-y-3 border-t border-white/10 px-4 py-4">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2.5">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-white">{viewerName ?? 'Account'}</p>
-              <p className="truncate text-xs text-slate-400">Web dashboard</p>
+              <p className="text-sm font-medium text-slate-200">Remote control</p>
+              <p className="truncate text-xs text-slate-500">Desktop app owns local execution</p>
             </div>
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/8 px-2 py-1 text-xs text-emerald-300">
+              Synced
+            </span>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
-            <UserButton />
-            <SignOutButton>
-              <button
-                className="inline-flex size-8 items-center justify-center rounded-md text-slate-400 hover:bg-white/8 hover:text-white"
-                type="button"
-              >
-                <LogOut className="size-4" />
-                <span className="sr-only">Sign out</span>
-              </button>
-            </SignOutButton>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-800 text-sm font-medium text-slate-200">
+                {getInitials(viewerName ?? 'Deskbinder User') || 'DB'}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-white">{viewerName ?? 'Account'}</p>
+                <p className="truncate text-xs text-slate-400">Web dashboard</p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1">
+              <UserButton />
+              <SignOutButton>
+                <button
+                  className="inline-flex size-8 items-center justify-center rounded-md text-slate-400 hover:bg-white/8 hover:text-white"
+                  type="button"
+                >
+                  <LogOut className="size-4" />
+                  <span className="sr-only">Sign out</span>
+                </button>
+              </SignOutButton>
+            </div>
           </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   )
 }
 
@@ -1064,19 +1130,19 @@ function BranchRequestDialogContent({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/62 px-4 py-6 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/62 px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6">
       <form
-        className="max-h-[calc(100vh-3rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/96 text-slate-100 shadow-2xl"
+        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/96 text-slate-100 shadow-2xl sm:max-h-[calc(100vh-3rem)]"
         onSubmit={handleSubmit}
       >
-        <div className="border-b border-white/10 px-6 py-5">
+        <div className="border-b border-white/10 px-4 py-4 sm:px-6 sm:py-5">
           <h2 className="text-lg font-semibold text-white">New branch</h2>
           <p className="mt-2 text-sm leading-6 text-slate-300/78">
             Queue workspace requests for the desktop app to run against {repo.name}.
           </p>
         </div>
 
-        <div className="space-y-5 px-6 py-5">
+        <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
           <label className="block space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-300/62">
               Workspace Count
@@ -1146,9 +1212,9 @@ function BranchRequestDialogContent({
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-white/10 bg-white/[0.03] px-6 py-4">
+        <div className="flex flex-col-reverse gap-2 border-t border-white/10 bg-white/[0.03] px-4 py-4 sm:flex-row sm:justify-end sm:gap-3 sm:px-6">
           <button
-            className="inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm text-slate-200 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+            className="inline-flex h-11 items-center justify-center rounded-lg px-4 text-sm text-slate-200 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-55 sm:h-10"
             disabled={isSubmitting}
             onClick={() => onOpenChange(false)}
             type="button"
@@ -1156,7 +1222,7 @@ function BranchRequestDialogContent({
             Cancel
           </button>
           <button
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
+            className="inline-flex h-11 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55 sm:h-10"
             disabled={isSubmitting || !workspaceDrafts[0]?.branchName.trim()}
             type="submit"
           >
@@ -1174,11 +1240,13 @@ function BranchRequestDialogContent({
 
 function WorkspaceHeader({
   isLoading,
+  onOpenNav,
   selectedRepo,
   selectedWorker,
   selectedWorkerStatus
 }: {
   isLoading: boolean
+  onOpenNav: () => void
   selectedRepo: DesktopRepoSummary | null
   selectedWorker: DesktopWorkerSummary | null
   selectedWorkerStatus: DisplayWorkerStatus | null
@@ -1206,23 +1274,38 @@ function WorkspaceHeader({
     ) : null
 
   return (
-    <header className="flex min-h-[76px] shrink-0 items-center border-b border-white/10 px-6 py-4 sm:px-8">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="truncate text-xl font-semibold tracking-tight text-slate-100">
-            {selectedRepo ? selectedRepo.name : isLoading ? 'deskbinder' : 'No repository'}
+    <header className="flex min-h-[68px] shrink-0 items-center gap-3 border-b border-white/10 px-3 py-3 sm:px-5">
+      <button
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-200 transition-colors hover:bg-white/[0.08] hover:text-white"
+        onClick={onOpenNav}
+        type="button"
+      >
+        <Menu className="size-5" />
+        <span className="sr-only">Open navigation</span>
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="min-w-0 truncate text-base font-semibold tracking-tight text-slate-100 sm:text-lg">
+            {selectedRepo ? selectedRepo.name : isLoading ? 'Deskbinder' : 'No repository'}
           </h2>
           {selectedRepo ? (
             <>
-              <span className="text-xl text-slate-500">/</span>
-              <span className="truncate text-xl font-semibold tracking-tight text-blue-400">
+              <span className="shrink-0 text-slate-500">/</span>
+              <span className="min-w-0 truncate text-base font-semibold tracking-tight text-blue-300 sm:text-lg">
                 {getBranchLabel(selectedRepo)}
               </span>
             </>
           ) : null}
-          {headerStatusDetails}
         </div>
+        <p className="mt-1 truncate text-xs text-slate-500">
+          {selectedWorker
+            ? `${selectedWorker.name} - ${selectedWorkerStatus ?? 'Offline'}`
+            : 'Desktop worker'}
+        </p>
       </div>
+
+      {headerStatusDetails}
     </header>
   )
 }
@@ -1280,7 +1363,7 @@ function WorkspacePanel({
   ) => void
 }): React.JSX.Element {
   return (
-    <div className="mx-auto flex w-full max-w-[900px] flex-col px-4 py-6 sm:px-8">
+    <div className="mx-auto flex min-h-full w-full max-w-[820px] flex-col px-3 py-4 sm:px-5 sm:py-6">
       <AgentJobList jobs={agentJobs} onAnswerHumanInputRequest={onAnswerHumanInputRequest} />
     </div>
   )
@@ -1301,10 +1384,10 @@ function AgentJobList({
     .slice(-8)
 
   return (
-    <section className="flex flex-col gap-5" aria-label="Conversation">
+    <section className="flex min-h-full flex-col gap-5" aria-label="Conversation">
       {jobs.length === 0 ? (
-        <div className="flex min-h-[260px] items-center justify-center text-sm text-slate-500">
-          No messages yet
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-500">
+          Start a conversation with the agent from this repository.
         </div>
       ) : (
         visibleJobs.map((job) => (
@@ -1344,7 +1427,7 @@ function AgentJobRow({
   return (
     <article className="flex flex-col gap-3">
       <div className="flex justify-end">
-        <div className="max-w-[78%] rounded-3xl rounded-br-lg bg-blue-600 px-4 py-3 text-[15px] leading-6 text-white shadow-[0_16px_50px_rgba(37,99,235,0.22)]">
+        <div className="max-w-[86%] rounded-2xl rounded-br-md bg-blue-600 px-4 py-3 text-[15px] leading-6 text-white shadow-[0_16px_50px_rgba(37,99,235,0.22)] sm:max-w-[76%]">
           <p className="whitespace-pre-wrap break-words">{job.promptText}</p>
           <p className="mt-2 text-right text-[11px] text-blue-100/75">
             {job.branchName ? `${job.branchName} - ` : ''}
@@ -1357,7 +1440,7 @@ function AgentJobRow({
         <div className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.045] text-slate-300">
           <Bot className="size-4" />
         </div>
-        <div className="min-w-0 max-w-[78%] rounded-3xl rounded-bl-lg border border-white/10 bg-[#0c121b]/92 px-4 py-3 text-[15px] leading-6 text-slate-200 shadow-[0_16px_50px_rgba(0,0,0,0.18)]">
+        <div className="min-w-0 max-w-[86%] rounded-2xl rounded-bl-md border border-white/10 bg-[#0c121b]/92 px-4 py-3 text-[15px] leading-6 text-slate-200 shadow-[0_16px_50px_rgba(0,0,0,0.18)] sm:max-w-[76%]">
           <span className={`inline-flex items-center gap-1.5 text-xs ${statusClassName}`}>
             {isActive && job.status !== 'interrupted' ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -1385,7 +1468,7 @@ function AgentJobRow({
 
       {pendingRequest ? (
         <form
-          className="ml-11 space-y-3 rounded-2xl border border-amber-300/14 bg-amber-950/16 p-3"
+          className="ml-0 space-y-3 rounded-2xl border border-amber-300/14 bg-amber-950/16 p-3 sm:ml-11"
           onSubmit={(event) => {
             event.preventDefault()
             const responseText = humanInputResponse.trim()
@@ -1440,9 +1523,9 @@ function PromptComposer({
   const inputDisabled = disabled || isSubmitting
 
   return (
-    <div className="shrink-0 border-t border-white/10 bg-[#080d14]/92 px-4 py-4 sm:px-6">
+    <div className="shrink-0 border-t border-white/10 bg-[#080d14]/96 px-3 py-3 sm:px-5 sm:py-4">
       <form
-        className="mx-auto flex max-w-[820px] items-center gap-3 rounded-[28px] border border-white/14 bg-[#111822]/96 p-2 shadow-[0_18px_80px_rgba(0,0,0,0.3)] transition-colors focus-within:border-blue-300/35"
+        className="mx-auto flex max-w-[820px] items-end gap-2 rounded-xl border border-white/14 bg-[#111822]/96 p-2 shadow-[0_18px_80px_rgba(0,0,0,0.3)] transition-colors focus-within:border-blue-300/35"
         onSubmit={(event) => {
           event.preventDefault()
 
@@ -1452,7 +1535,7 @@ function PromptComposer({
         }}
       >
         <textarea
-          className="max-h-44 min-h-14 min-w-0 flex-1 resize-none border-0 bg-transparent px-4 py-3 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="max-h-44 min-h-12 min-w-0 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-[15px] leading-6 text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={inputDisabled}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
@@ -1466,7 +1549,7 @@ function PromptComposer({
         />
 
         <button
-          className="inline-flex size-9 items-center justify-center rounded-full bg-slate-100 text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-white/14 disabled:text-slate-500"
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-white/14 disabled:text-slate-500"
           disabled={submitDisabled}
           type="submit"
         >
