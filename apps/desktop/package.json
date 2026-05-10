@@ -2,6 +2,8 @@
   "name": "@deskbinder/desktop",
   "version": "1.0.0",
   "description": "Deskbinder desktop shell",
+  "author": "Zack Salama <zacksalama@gmail.com>",
+  "homepage": "https://github.com/zacksalama/deskbinder",
   "main": "./out/main/index.js",
   "scripts": {
     "audit:env": "node scripts/check-env-boundaries.mjs",

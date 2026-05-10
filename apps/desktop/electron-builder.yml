@@ -1,5 +1,6 @@
-appId: com.electron.app
-productName: deskbinder
+appId: com.zack.deskbinder
+productName: Deskbinder
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
   buildResources: build
 files:
@@ -14,7 +15,7 @@ asarUnpack:
 win:
   executableName: deskbinder
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${productName}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -27,16 +28,17 @@ mac:
     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}.${ext}
 linux:
   target:
     - AppImage
     - snap
     - deb
-  maintainer: electronjs.org
+  executableName: deskbinder
+  maintainer: Zack Salama <zacksalama@gmail.com>
   category: Utility
 appImage:
-  artifactName: ${name}-${version}.${ext}
+  artifactName: ${productName}-${version}.${ext}
 npmRebuild: false
 publish:
   provider: generic
