@@ -18,7 +18,6 @@ import {
   terminateTrackedWorkspaceProcesses
 } from './services/processTracking'
 import { AgentRunner } from './services/agentRunner'
-import { buildRepoSyncMetadata } from './services/repoSyncMetadata'
 import { runWorkspaceScript } from './services/workspaceScript'
 import { ConvexSession } from './services/convexSession'
 import { ConvexRepoStore, desktopRepoToRepoSettings } from './services/convexRepoStore'
@@ -591,11 +590,14 @@ app.whenReady().then(() => {
     return pickFolder(BrowserWindow.fromWebContents(event.sender))
   })
   ipcMain.handle(IPC_CHANNELS.setConvexSession, async (_, input) => {
-    if (!convexSession) {
+    if (!convexSession || !convexRepoStore || !localConfigStore) {
       throw new Error('Convex session store is unavailable.')
     }
 
     convexSession.set(input)
+    await convexRepoStore.registerWorker()
+    await convexRepoStore.importLocalRepoConfigs((await localConfigStore.read()).repos)
+    await convexRepoStore.syncRepoStates()
   })
   ipcMain.handle(IPC_CHANNELS.clearConvexSession, async () => {
     convexSession?.clear()
@@ -627,34 +629,6 @@ app.whenReady().then(() => {
     }
 
     return convexRepoStore.syncRepoStates()
-  })
-  ipcMain.handle(IPC_CHANNELS.getLocalConfig, async () => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
-    }
-
-    return localConfigStore.read()
-  })
-  ipcMain.handle(IPC_CHANNELS.createRepo, async (_, input) => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
-    }
-
-    return localConfigStore.createRepo(input)
-  })
-  ipcMain.handle(IPC_CHANNELS.updateRepo, async (_, repo) => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
-    }
-
-    return localConfigStore.updateRepo(repo)
-  })
-  ipcMain.handle(IPC_CHANNELS.getRepoSyncMetadata, async () => {
-    if (!localConfigStore) {
-      throw new Error('Local config store is unavailable.')
-    }
-
-    return buildRepoSyncMetadata(await localConfigStore.read())
   })
   ipcMain.handle(IPC_CHANNELS.runWorkspaceScript, async (_, input) => {
     if (activeWorkspaceScriptRun) {

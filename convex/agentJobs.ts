@@ -7,8 +7,10 @@ const SUMMARY_MAX_CHARACTERS = 60_000
 const ERROR_MAX_CHARACTERS = 2_000
 const HUMAN_INPUT_MAX_CHARACTERS = 100_000
 const CODEX_THREAD_ID_MAX_CHARACTERS = 200
+const BRANCH_NAME_MAX_CHARACTERS = 240
 const QUEUED_JOB_LIMIT = 5
 const RECENT_JOB_LIMIT = 20
+const UNKNOWN_CURRENT_BRANCH = 'unknown'
 
 const desktopCompletionStatusValidator = v.union(
   v.literal('succeeded'),
@@ -97,20 +99,20 @@ async function getDesktopWorker(
 async function getDesktopRepo(
   ctx: QueryCtx | MutationCtx,
   ownerTokenIdentifier: string,
-  workerId: string,
   localRepoId: string
 ): Promise<Doc<'desktopRepoConfigs'> | null> {
-  const repo = await ctx.db
+  const repos = await ctx.db
     .query('desktopRepoConfigs')
-    .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
-      q
-        .eq('ownerTokenIdentifier', ownerTokenIdentifier)
-        .eq('workerId', workerId)
-        .eq('localRepoId', localRepoId)
+    .withIndex('by_ownerTokenIdentifier_and_localRepoId', (q) =>
+      q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('localRepoId', localRepoId)
     )
-    .first()
+    .take(10)
 
-  return repo && !repo.deletedAt ? repo : null
+  return (
+    repos
+      .filter((repo) => !repo.deletedAt)
+      .sort((first, second) => first.createdAt - second.createdAt)[0] ?? null
+  )
 }
 
 async function getDesktopRepoState(
@@ -155,6 +157,10 @@ function sanitizeOptionalString(
   }
 
   return trimmedValue.slice(0, maxCharacters)
+}
+
+function sanitizeCurrentBranch(value: string): string {
+  return sanitizeOptionalString(value, BRANCH_NAME_MAX_CHARACTERS) ?? UNKNOWN_CURRENT_BRANCH
 }
 
 function toFinalAgentStatus(status: DesktopCompletionStatus): AgentJobStatus {
@@ -277,12 +283,7 @@ export const createAgentJob = mutation({
       throw new Error('Desktop worker is not registered.')
     }
 
-    const repo = await getDesktopRepo(
-      ctx,
-      ownerTokenIdentifier,
-      args.targetWorkerId,
-      args.targetRepoId
-    )
+    const repo = await getDesktopRepo(ctx, ownerTokenIdentifier, args.targetRepoId)
 
     if (!repo) {
       throw new Error('Repository is unavailable.')
@@ -306,7 +307,7 @@ export const createAgentJob = mutation({
       targetRepoId: args.targetRepoId,
       promptText: sanitizeRequiredString(args.promptText, 'Prompt text', PROMPT_MAX_CHARACTERS),
       status: 'queued',
-      branchName: repo.workspaceBranchName ?? repoState.currentBranch,
+      branchName: repo.workspaceBranchName ?? sanitizeCurrentBranch(repoState.currentBranch),
       createdAt: now,
       updatedAt: now
     })

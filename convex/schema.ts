@@ -98,6 +98,8 @@ export default defineSchema({
     updatedAt: v.number()
   })
     .index('by_ownerTokenIdentifier_and_workerId', ['ownerTokenIdentifier', 'workerId'])
+    .index('by_ownerTokenIdentifier_and_localRepoId', ['ownerTokenIdentifier', 'localRepoId'])
+    .index('by_ownerTokenIdentifier_and_repoPath', ['ownerTokenIdentifier', 'repoPath'])
     .index('by_ownerTokenIdentifier_and_workerId_and_localRepoId', [
       'ownerTokenIdentifier',
       'workerId',

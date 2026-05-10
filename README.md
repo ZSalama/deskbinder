@@ -26,6 +26,7 @@ Users are expected to provide these scripts and take full responsibility for the
 - `pnpm build`: build desktop and web
 - `pnpm lint`: lint the workspace
 - `pnpm typecheck`: typecheck every package that exposes a typecheck script
+- `pnpm --filter @deskbinder/desktop build:linux` : build for linux package
 
 ## Environment
 
@@ -36,17 +37,3 @@ Both apps use the same Clerk and Convex deployment, but each framework needs its
 - Shared auth config: `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER_DOMAIN`
 
 ## Features/work in progress
-
-- remove notification cards on the top of transcription section
-- set busy to be per branch
-- improve codex log display in desktop app
-- remove unused ui components
-- human-in-the-loop
-
-## HITL prompt
-
-Create a file named HITL_TEST.md.
-
-Then stop and ask the user: “Should I continue with option A or option B?”
-
-Do not proceed until the user answers.

@@ -6,10 +6,8 @@ import type {
   CreateRepoInput,
   DeleteWorkspaceInput,
   DeleteWorkspaceResponse,
-  DeskbinderConfig,
   DesktopRepoSummary,
   LocalDeviceConfig,
-  RepoSyncMetadataResponse,
   RunAgentInput,
   RunAgentResponse,
   RunWorkspaceScriptInput,
@@ -40,10 +38,6 @@ export interface DeskbinderApi {
   createRemoteRepo: (input: CreateRepoInput) => Promise<DesktopRepoSummary>
   updateRemoteRepoSettings: (input: UpdateRepoInput) => Promise<DesktopRepoSummary>
   syncRepoStates: () => Promise<DesktopRepoSummary[]>
-  getLocalConfig: () => Promise<DeskbinderConfig>
-  createRepo: (input: CreateRepoInput) => Promise<DeskbinderConfig>
-  updateRepo: (input: UpdateRepoInput) => Promise<DeskbinderConfig>
-  getRepoSyncMetadata: () => Promise<RepoSyncMetadataResponse>
   runWorkspaceScript: (input: RunWorkspaceScriptInput) => Promise<RunWorkspaceScriptResponse>
   runWorkspaceScripts: (input: RunWorkspaceScriptsInput) => Promise<RunWorkspaceScriptsResponse>
   deleteWorkspace: (input: DeleteWorkspaceInput) => Promise<DeleteWorkspaceResponse>

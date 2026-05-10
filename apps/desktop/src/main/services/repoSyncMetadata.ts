@@ -13,6 +13,7 @@ import type {
 } from '@deskbinder/shared/deskbinder'
 
 const execFileAsync = promisify(execFile)
+const UNKNOWN_CURRENT_BRANCH = 'unknown'
 
 type GitCommandResult = {
   stdout: string
@@ -52,7 +53,7 @@ function isPathWithin(rootPath: string, targetPath: string): boolean {
 function createReadinessResult(
   readinessStatus: RepoReadinessStatus,
   readinessMessage?: string,
-  currentBranch = ''
+  currentBranch = UNKNOWN_CURRENT_BRANCH
 ): RepoReadinessResult {
   return {
     currentBranch,
@@ -92,8 +93,24 @@ async function validateWorkspaceScript(
 
 async function getCurrentBranch(repoPath: string): Promise<string> {
   const branchResult = await runGitCommand(repoPath, ['branch', '--show-current'])
+  const branchName = branchResult.stdout.trim()
 
-  return branchResult.stdout.trim()
+  if (branchName) {
+    return branchName
+  }
+
+  try {
+    const headResult = await runGitCommand(repoPath, ['rev-parse', '--short', 'HEAD'])
+    const shortHead = headResult.stdout.trim()
+
+    if (shortHead) {
+      return `HEAD ${shortHead}`
+    }
+  } catch {
+    return UNKNOWN_CURRENT_BRANCH
+  }
+
+  return UNKNOWN_CURRENT_BRANCH
 }
 
 async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessResult> {
@@ -106,7 +123,7 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
     return createReadinessResult('missing_repo', 'Local repository folder is missing.')
   }
 
-  let currentBranch = ''
+  let currentBranch = UNKNOWN_CURRENT_BRANCH
 
   try {
     const insideWorkTreeResult = await runGitCommand(repoPath, [

@@ -14,19 +14,23 @@
     "lint": "eslint --cache .",
     "start": "pnpm --filter @deskbinder/desktop start",
     "test:desktop": "pnpm --filter @deskbinder/desktop test:e2e",
+    "test:convex": "vitest run",
     "typecheck": "pnpm -r --if-present run typecheck"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@types/node": "^22.19.1",
     "convex": "^1.36.1",
+    "convex-test": "^0.0.51",
     "eslint": "^9.39.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "prettier": "^3.7.4",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

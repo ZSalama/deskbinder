@@ -46,20 +46,20 @@ async function getDesktopWorker(
 async function getDesktopRepo(
   ctx: QueryCtx | MutationCtx,
   ownerTokenIdentifier: string,
-  workerId: string,
   localRepoId: string
 ): Promise<Doc<'desktopRepoConfigs'> | null> {
-  const repo = await ctx.db
+  const repos = await ctx.db
     .query('desktopRepoConfigs')
-    .withIndex('by_ownerTokenIdentifier_and_workerId_and_localRepoId', (q) =>
-      q
-        .eq('ownerTokenIdentifier', ownerTokenIdentifier)
-        .eq('workerId', workerId)
-        .eq('localRepoId', localRepoId)
+    .withIndex('by_ownerTokenIdentifier_and_localRepoId', (q) =>
+      q.eq('ownerTokenIdentifier', ownerTokenIdentifier).eq('localRepoId', localRepoId)
     )
-    .first()
+    .take(10)
 
-  return repo && !repo.deletedAt ? repo : null
+  return (
+    repos
+      .filter((repo) => !repo.deletedAt)
+      .sort((first, second) => first.createdAt - second.createdAt)[0] ?? null
+  )
 }
 
 function sanitizeBranchName(branchName: string): string {
@@ -126,12 +126,7 @@ export const createBranchRequest = mutation({
       throw new Error('Desktop worker is not registered.')
     }
 
-    const sourceRepo = await getDesktopRepo(
-      ctx,
-      ownerTokenIdentifier,
-      args.targetWorkerId,
-      args.sourceLocalRepoId
-    )
+    const sourceRepo = await getDesktopRepo(ctx, ownerTokenIdentifier, args.sourceLocalRepoId)
 
     if (!sourceRepo) {
       throw new Error('Source repository is unavailable.')
@@ -186,12 +181,7 @@ export const createBranchRequests = mutation({
       throw new Error('Desktop worker is not registered.')
     }
 
-    const sourceRepo = await getDesktopRepo(
-      ctx,
-      ownerTokenIdentifier,
-      args.targetWorkerId,
-      args.sourceLocalRepoId
-    )
+    const sourceRepo = await getDesktopRepo(ctx, ownerTokenIdentifier, args.sourceLocalRepoId)
 
     if (!sourceRepo) {
       throw new Error('Source repository is unavailable.')
