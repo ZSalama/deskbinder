@@ -3,8 +3,9 @@ import { Providers } from '../components/providers'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Deskbinder Web',
-  description: 'Small web companion app for the shared Deskbinder Convex backend.'
+  title: 'Deskbinder',
+  description:
+    'Run Codex jobs against local repositories from a Linux-first desktop worker and web companion.'
 }
 
 export default function RootLayout({

@@ -1,6 +1,17 @@
 {
   "name": "@deskbinder/shared",
   "private": true,
+  "description": "Shared Deskbinder IPC contracts and domain types.",
+  "license": "MIT",
+  "homepage": "https://github.com/zacksalama/deskbinder#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zacksalama/deskbinder.git",
+    "directory": "packages/shared"
+  },
+  "bugs": {
+    "url": "https://github.com/zacksalama/deskbinder/issues"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

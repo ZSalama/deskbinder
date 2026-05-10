@@ -1,6 +1,17 @@
 {
   "name": "@deskbinder/convex-client",
   "private": true,
+  "description": "Shared Convex generated API re-exports for Deskbinder apps.",
+  "license": "MIT",
+  "homepage": "https://github.com/zacksalama/deskbinder#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zacksalama/deskbinder.git",
+    "directory": "packages/convex-client"
+  },
+  "bugs": {
+    "url": "https://github.com/zacksalama/deskbinder/issues"
+  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
