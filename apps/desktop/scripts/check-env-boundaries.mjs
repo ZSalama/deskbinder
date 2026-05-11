@@ -11,7 +11,8 @@ const ALLOWED_PUBLIC_ENV_VARS = new Set([
   'VITE_CONVEX_SITE_URL'
 ])
 
-const SUSPICIOUS_PUBLIC_ENV_PATTERN = /(SECRET|PRIVATE|PASSWORD|ACCESS_TOKEN|REFRESH_TOKEN|API_KEY)/i
+const SUSPICIOUS_PUBLIC_ENV_PATTERN =
+  /(SECRET|PRIVATE|PASSWORD|ACCESS_TOKEN|REFRESH_TOKEN|API_KEY)/i
 
 async function walkFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true })

@@ -3,14 +3,14 @@
   "private": true,
   "description": "Web companion for controlling Deskbinder desktop workers through Convex.",
   "license": "MIT",
-  "homepage": "https://github.com/zacksalama/deskbinder#readme",
+  "homepage": "https://github.com/ZSalama/deskbinder#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zacksalama/deskbinder.git",
+    "url": "git+https://github.com/ZSalama/deskbinder.git",
     "directory": "apps/web"
   },
   "bugs": {
-    "url": "https://github.com/zacksalama/deskbinder/issues"
+    "url": "https://github.com/ZSalama/deskbinder/issues"
   },
   "scripts": {
     "build": "next build",

@@ -86,14 +86,7 @@ export function useWorkerHeartbeat({
       isActive = false
       window.clearInterval(intervalId)
     }
-  }, [
-    enabled,
-    heartbeatDesktopWorker,
-    registerDesktopWorker,
-    status,
-    workerId,
-    workerName
-  ])
+  }, [enabled, heartbeatDesktopWorker, registerDesktopWorker, status, workerId, workerName])
 
   return {
     error

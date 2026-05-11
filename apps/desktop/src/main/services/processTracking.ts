@@ -176,7 +176,9 @@ export async function isTrackedWorkspaceProcessLive(
   const normalizedRepoPath = normalizePath(repoPath)
   const processInfo = await readProcessInfo(trackedProcess.pid)
 
-  return processInfo ? matchesTrackedProcess(processInfo, trackedProcess, normalizedRepoPath) : false
+  return processInfo
+    ? matchesTrackedProcess(processInfo, trackedProcess, normalizedRepoPath)
+    : false
 }
 
 export async function terminateTrackedWorkspaceProcesses(

@@ -25,6 +25,7 @@ export function useDevEnvironmentStatus({
   enabled,
   repoId
 }: UseDevEnvironmentStatusOptions): UseDevEnvironmentStatusResult {
+  const canCheckStatus = enabled && Boolean(desktopApi) && Boolean(repoId)
   const [status, setStatus] = useState<DevEnvironmentStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const requestSequence = useRef(0)
@@ -58,27 +59,28 @@ export function useDevEnvironmentStatus({
   }, [desktopApi, enabled, repoId])
 
   useEffect(() => {
-    if (!enabled || !desktopApi || !repoId) {
+    if (!canCheckStatus) {
       requestSequence.current += 1
-      setStatus(null)
-      setError(null)
       return
     }
 
-    void refresh()
+    const timeoutId = window.setTimeout(() => {
+      void refresh()
+    }, 0)
 
     const intervalId = window.setInterval(() => {
       void refresh()
     }, DEV_ENVIRONMENT_STATUS_INTERVAL_MS)
 
     return () => {
+      window.clearTimeout(timeoutId)
       window.clearInterval(intervalId)
     }
-  }, [desktopApi, enabled, refresh, repoId])
+  }, [canCheckStatus, refresh])
 
   return {
-    status,
-    error,
+    status: canCheckStatus ? status : null,
+    error: canCheckStatus ? error : null,
     refresh
   }
 }

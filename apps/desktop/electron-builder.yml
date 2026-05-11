@@ -1,4 +1,4 @@
-appId: io.github.zacksalama.deskbinder
+appId: io.github.zsalama.deskbinder
 productName: Deskbinder
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 directories:
@@ -37,5 +37,5 @@ appImage:
 npmRebuild: false
 publish:
   provider: github
-  owner: zacksalama
+  owner: ZSalama
   repo: deskbinder

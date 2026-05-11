@@ -86,7 +86,6 @@ export function WorkspaceHeader({
         </div>
         {authEmail ? <p className="mt-2 truncate text-xs text-slate-500">{authEmail}</p> : null}
       </div>
-
     </header>
   )
 }

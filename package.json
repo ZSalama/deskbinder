@@ -4,13 +4,13 @@
   "description": "Linux-first desktop and web tools for running Codex jobs against local repositories.",
   "license": "MIT",
   "author": "Zack Salama",
-  "homepage": "https://github.com/zacksalama/deskbinder#readme",
+  "homepage": "https://github.com/ZSalama/deskbinder#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zacksalama/deskbinder.git"
+    "url": "git+https://github.com/ZSalama/deskbinder.git"
   },
   "bugs": {
-    "url": "https://github.com/zacksalama/deskbinder/issues"
+    "url": "https://github.com/ZSalama/deskbinder/issues"
   },
   "keywords": [
     "codex",

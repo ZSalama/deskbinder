@@ -21,10 +21,7 @@ import { AgentRunner } from './services/agentRunner'
 import { findAvailableAutoDevPort, runWorkspaceScript } from './services/workspaceScript'
 import { ConvexSession } from './services/convexSession'
 import { ConvexRepoStore, desktopRepoToRepoSettings } from './services/convexRepoStore'
-import {
-  getDevEnvironmentStatus,
-  openDevEnvironment
-} from './services/devEnvironment'
+import { getDevEnvironmentStatus, openDevEnvironment } from './services/devEnvironment'
 import { openTerminalAtPath } from './services/terminalLauncher'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'

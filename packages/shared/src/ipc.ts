@@ -47,9 +47,7 @@ export interface DeskbinderApi {
   runWorkspaceScript: (input: RunWorkspaceScriptInput) => Promise<RunWorkspaceScriptResponse>
   runWorkspaceScripts: (input: RunWorkspaceScriptsInput) => Promise<RunWorkspaceScriptsResponse>
   deleteWorkspace: (input: DeleteWorkspaceInput) => Promise<DeleteWorkspaceResponse>
-  getDevEnvironmentStatus: (
-    input: GetDevEnvironmentStatusInput
-  ) => Promise<DevEnvironmentStatus>
+  getDevEnvironmentStatus: (input: GetDevEnvironmentStatusInput) => Promise<DevEnvironmentStatus>
   openDevEnvironment: (input: OpenDevEnvironmentInput) => Promise<OpenDevEnvironmentResponse>
   openRepoTerminal: (input: OpenRepoTerminalInput) => Promise<OpenRepoTerminalResponse>
   runAgent: (input: RunAgentInput) => Promise<RunAgentResponse>

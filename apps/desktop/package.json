@@ -4,14 +4,14 @@
   "description": "Electron desktop worker for running Codex jobs in local repositories.",
   "author": "Zack Salama",
   "license": "MIT",
-  "homepage": "https://github.com/zacksalama/deskbinder#readme",
+  "homepage": "https://github.com/ZSalama/deskbinder#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zacksalama/deskbinder.git",
+    "url": "git+https://github.com/ZSalama/deskbinder.git",
     "directory": "apps/desktop"
   },
   "bugs": {
-    "url": "https://github.com/zacksalama/deskbinder/issues"
+    "url": "https://github.com/ZSalama/deskbinder/issues"
   },
   "main": "./out/main/index.js",
   "scripts": {

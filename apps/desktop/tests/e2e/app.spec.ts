@@ -12,9 +12,7 @@ test('starts the desktop shell with a restricted renderer boundary', async ({ pa
   await expect(page.evaluate(() => typeof window.api.getDevEnvironmentStatus)).resolves.toBe(
     'function'
   )
-  await expect(page.evaluate(() => typeof window.api.openDevEnvironment)).resolves.toBe(
-    'function'
-  )
+  await expect(page.evaluate(() => typeof window.api.openDevEnvironment)).resolves.toBe('function')
   await expect(
     page.evaluate(() => {
       const rendererGlobal = globalThis as typeof globalThis & { require?: unknown }

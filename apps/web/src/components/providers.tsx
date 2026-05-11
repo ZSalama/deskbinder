@@ -15,11 +15,7 @@ export function Providers({ children }: { children: React.ReactNode }): React.JS
   return <ClerkProvider publishableKey={publishableKey}>{children}</ClerkProvider>
 }
 
-export function ConvexProviders({
-  children
-}: {
-  children: React.ReactNode
-}): React.JSX.Element {
+export function ConvexProviders({ children }: { children: React.ReactNode }): React.JSX.Element {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
   const [client] = useState(() => (convexUrl ? new ConvexReactClient(convexUrl) : null))
 

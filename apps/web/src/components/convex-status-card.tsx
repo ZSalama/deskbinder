@@ -981,15 +981,16 @@ function RemoteSidebar({
         </div>
       </aside>
 
-      <WorkerManagementDialog
-        now={now}
-        onOpenChange={setIsWorkerDialogOpen}
-        onSelectWorker={setSelectedWorkerId}
-        open={isWorkerDialogOpen}
-        repoCounts={workerRepoCounts}
-        selectedWorkerId={selectedWorkerId}
-        workers={workers ?? []}
-      />
+      {isWorkerDialogOpen ? (
+        <WorkerManagementDialog
+          now={now}
+          onOpenChange={setIsWorkerDialogOpen}
+          onSelectWorker={setSelectedWorkerId}
+          repoCounts={workerRepoCounts}
+          selectedWorkerId={selectedWorkerId}
+          workers={workers ?? []}
+        />
+      ) : null}
     </>
   )
 }
@@ -1039,7 +1040,6 @@ function WorkerManagementDialog({
   now,
   onOpenChange,
   onSelectWorker,
-  open,
   repoCounts,
   selectedWorkerId,
   workers
@@ -1047,7 +1047,6 @@ function WorkerManagementDialog({
   now: number
   onOpenChange: (open: boolean) => void
   onSelectWorker: (workerId: string) => void
-  open: boolean
   repoCounts: Map<string, number>
   selectedWorkerId: string | null
   workers: DesktopWorkerSummary[]
@@ -1059,19 +1058,6 @@ function WorkerManagementDialog({
   const [dialogError, setDialogError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    setDraftNames(Object.fromEntries(workers.map((worker) => [worker.workerId, worker.name])))
-    setDialogError(null)
-  }, [open, workers])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
     const previousOverflow = document.body.style.overflow
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && !busyWorkerId) {
@@ -1086,11 +1072,7 @@ function WorkerManagementDialog({
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [busyWorkerId, onOpenChange, open])
-
-  if (!open) {
-    return null
-  }
+  }, [busyWorkerId, onOpenChange])
 
   async function handleRename(worker: DesktopWorkerSummary): Promise<void> {
     const name = draftNames[worker.workerId]?.trim() ?? ''
