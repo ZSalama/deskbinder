@@ -40,3 +40,6 @@ Thumbs.db
 
 notes.txt
 apps/desktop/.deskbinder/
+
+.agent.env
+.agent.pid

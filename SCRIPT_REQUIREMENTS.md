@@ -327,6 +327,8 @@ If the script does not start long-running processes, omit `processes`.
 
 For dev servers, the launcher process is not always the process that listens on the requested port. A better pattern is to start the server from inside the workspace, write the launcher PID, then detect the listening PID with `ss` or `lsof` and return that PID if available. Validate ports before starting servers and fail early if the port is already in use.
 
+When a Bash script reserves a separate stdout descriptor for the final JSON result, close that descriptor for any background process. For example, use `3>&-` on a detached dev server command. Otherwise the background process can inherit Deskbinder's stdout pipe after the script exits, which leaves the desktop app waiting for the workspace script to finish.
+
 ## Agent Run Requirements
 
 After registration, Deskbinder runs Codex with:

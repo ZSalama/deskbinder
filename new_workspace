@@ -437,7 +437,7 @@ if [[ -n "$PORT" ]]; then
   (
     cd "$WORKSPACE_PATH"
     nohup pnpm --filter @deskbinder/web run dev --hostname 127.0.0.1 --port "$PORT" \
-      > "$DEV_LOG" 2>&1 &
+      > "$DEV_LOG" 2>&1 3>&- &
     printf '%s\n' "$!" > .agent.pid
   )
   DEV_PID="$(cat "$WORKSPACE_PATH/.agent.pid")"

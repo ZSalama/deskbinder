@@ -8,6 +8,7 @@ import type { RepoSettings, WorkspaceScriptResult } from '@deskbinder/shared/des
 
 const execFileAsync = promisify(execFile)
 const SCRIPT_TIMEOUT_MS = 10 * 60 * 1000
+const SCRIPT_EXIT_STDIO_DRAIN_MS = 250
 const MAX_OUTPUT_BYTES = 256 * 1024
 const DEFAULT_WORKSPACE_SCRIPT_PATH = 'new_workspace'
 const AUTO_DEV_PORT_START = 3000
@@ -354,6 +355,7 @@ export async function runWorkspaceScript({
       let settled = false
       let stdoutBytes = 0
       let stderrBytes = 0
+      let exitFallback: NodeJS.Timeout | null = null
       const timeout = setTimeout(() => {
         child.kill('SIGTERM')
       }, SCRIPT_TIMEOUT_MS)
@@ -365,7 +367,59 @@ export async function runWorkspaceScript({
 
         settled = true
         clearTimeout(timeout)
+        if (exitFallback) {
+          clearTimeout(exitFallback)
+        }
         resolveResult(result)
+      }
+
+      const finishAfterScriptExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+        if (settled) {
+          return
+        }
+
+        if (signal) {
+          const failureStep = signal === 'SIGTERM' ? 'timeout' : 'script_signal'
+          const errorMessage =
+            signal === 'SIGTERM'
+              ? 'Workspace script timed out before finishing.'
+              : `Workspace script exited after signal ${signal}.`
+
+          finish(buildFailureResult(normalizedBranchName, errorMessage, failureStep, repo.repoPath))
+          return
+        }
+
+        if (code !== 0) {
+          finish(
+            buildFailureResult(
+              normalizedBranchName,
+              trimOutput(stderr) || `Workspace script exited with code ${code}.`,
+              'script_execution',
+              repo.repoPath
+            )
+          )
+          return
+        }
+
+        try {
+          const parsedResult = extractJsonObject(stdout)
+          const normalizedResult = normalizeWorkspaceScriptResult(
+            parsedResult,
+            normalizedBranchName,
+            repo.repoPath
+          )
+
+          finish(normalizedResult)
+        } catch (error) {
+          finish(
+            buildFailureResult(
+              normalizedBranchName,
+              error instanceof Error ? error.message : 'Workspace script returned invalid JSON.',
+              'result_parse',
+              repo.repoPath
+            )
+          )
+        }
       }
 
       child.stdout.setEncoding('utf8')
@@ -419,55 +473,19 @@ export async function runWorkspaceScript({
         )
       })
 
-      child.on('close', (code, signal) => {
+      child.on('exit', (code, signal) => {
         if (settled) {
           return
         }
 
-        clearTimeout(timeout)
+        exitFallback = setTimeout(
+          () => finishAfterScriptExit(code, signal),
+          SCRIPT_EXIT_STDIO_DRAIN_MS
+        )
+      })
 
-        if (signal) {
-          const failureStep = signal === 'SIGTERM' ? 'timeout' : 'script_signal'
-          const errorMessage =
-            signal === 'SIGTERM'
-              ? 'Workspace script timed out before finishing.'
-              : `Workspace script exited after signal ${signal}.`
-
-          finish(buildFailureResult(normalizedBranchName, errorMessage, failureStep, repo.repoPath))
-          return
-        }
-
-        if (code !== 0) {
-          finish(
-            buildFailureResult(
-              normalizedBranchName,
-              trimOutput(stderr) || `Workspace script exited with code ${code}.`,
-              'script_execution',
-              repo.repoPath
-            )
-          )
-          return
-        }
-
-        try {
-          const parsedResult = extractJsonObject(stdout)
-          const normalizedResult = normalizeWorkspaceScriptResult(
-            parsedResult,
-            normalizedBranchName,
-            repo.repoPath
-          )
-
-          finish(normalizedResult)
-        } catch (error) {
-          finish(
-            buildFailureResult(
-              normalizedBranchName,
-              error instanceof Error ? error.message : 'Workspace script returned invalid JSON.',
-              'result_parse',
-              repo.repoPath
-            )
-          )
-        }
+      child.on('close', (code, signal) => {
+        finishAfterScriptExit(code, signal)
       })
     })
   } catch (error) {
