@@ -22,8 +22,11 @@ import {
   LogOut,
   Menu,
   Monitor,
+  Pencil,
   Plus,
   SendHorizontal,
+  Settings,
+  Trash2,
   Workflow,
   X
 } from 'lucide-react'
@@ -778,6 +781,21 @@ function RemoteSidebar({
   const workerRepos = repos?.filter((repo) => repo.workerId === selectedWorkerId) ?? []
   const repoGroups = buildRepoGroups(workerRepos)
   const canRequestBranch = Boolean(selectedWorkerId)
+  const [isWorkerDialogOpen, setIsWorkerDialogOpen] = useState(false)
+  const selectedWorker = useMemo(
+    () => workers?.find((worker) => worker.workerId === selectedWorkerId) ?? null,
+    [selectedWorkerId, workers]
+  )
+  const selectedWorkerStatus = selectedWorker ? getWorkerDisplayStatus(selectedWorker, now) : null
+  const workerRepoCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+
+    for (const repo of repos ?? []) {
+      counts.set(repo.workerId, (counts.get(repo.workerId) ?? 0) + 1)
+    }
+
+    return counts
+  }, [repos])
 
   useEffect(() => {
     if (!isOpen) {
@@ -854,36 +872,6 @@ function RemoteSidebar({
             <section className="space-y-2">
               <div className="flex items-center justify-between gap-3 px-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
-                  Desktop Workers
-                </p>
-                <span className="text-xs text-slate-500">{workers ? workers.length : '-'}</span>
-              </div>
-
-              {!workers ? (
-                <SidebarLoadingRows />
-              ) : workers.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
-                  No workers registered.
-                </p>
-              ) : (
-                workers.map((worker) => (
-                  <WorkerButton
-                    key={worker.workerId}
-                    now={now}
-                    onSelect={setSelectedWorkerId}
-                    repoCount={
-                      repos?.filter((repo) => repo.workerId === worker.workerId).length ?? 0
-                    }
-                    selected={worker.workerId === selectedWorkerId}
-                    worker={worker}
-                  />
-                ))
-              )}
-            </section>
-
-            <section className="space-y-2">
-              <div className="flex items-center justify-between gap-3 px-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
                   Repositories
                 </p>
                 <span className="text-xs text-slate-500">{repos ? repoGroups.length : '-'}</span>
@@ -936,6 +924,32 @@ function RemoteSidebar({
                 </div>
               )}
             </section>
+
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Desktop Worker
+                </p>
+                <span className="text-xs text-slate-500">{workers ? workers.length : '-'}</span>
+              </div>
+
+              {!workers ? (
+                <div className="h-16 animate-pulse rounded-lg border border-white/8 bg-white/[0.025]" />
+              ) : workers.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
+                  No workers registered.
+                </p>
+              ) : (
+                <SelectedWorkerControl
+                  onManage={() => setIsWorkerDialogOpen(true)}
+                  repoCount={
+                    selectedWorker ? (workerRepoCounts.get(selectedWorker.workerId) ?? 0) : 0
+                  }
+                  selectedWorker={selectedWorker}
+                  selectedWorkerStatus={selectedWorkerStatus}
+                />
+              )}
+            </section>
           </div>
         </div>
 
@@ -966,54 +980,288 @@ function RemoteSidebar({
           </div>
         </div>
       </aside>
+
+      <WorkerManagementDialog
+        now={now}
+        onOpenChange={setIsWorkerDialogOpen}
+        onSelectWorker={setSelectedWorkerId}
+        open={isWorkerDialogOpen}
+        repoCounts={workerRepoCounts}
+        selectedWorkerId={selectedWorkerId}
+        workers={workers ?? []}
+      />
     </>
   )
 }
 
-function WorkerButton({
-  now,
-  onSelect,
+function SelectedWorkerControl({
+  onManage,
   repoCount,
-  selected,
-  worker
+  selectedWorker,
+  selectedWorkerStatus
 }: {
-  now: number
-  onSelect: (workerId: string) => void
+  onManage: () => void
   repoCount: number
-  selected: boolean
-  worker: DesktopWorkerSummary
+  selectedWorker: DesktopWorkerSummary | null
+  selectedWorkerStatus: DisplayWorkerStatus | null
 }): React.JSX.Element {
-  const status = getWorkerDisplayStatus(worker, now)
-
   return (
     <button
-      className={joinClassNames(
-        'w-full rounded-lg border px-3 py-3 text-left transition-colors',
-        selected
-          ? 'border-blue-400/18 bg-blue-500/10 text-blue-100'
-          : 'border-white/8 bg-white/[0.025] text-slate-300 hover:bg-white/[0.055] hover:text-white'
-      )}
-      onClick={() => onSelect(worker.workerId)}
+      className="flex w-full items-center justify-between gap-3 rounded-lg border border-white/8 bg-white/[0.025] px-3 py-3 text-left text-slate-300 transition-colors hover:bg-white/[0.055] hover:text-white"
+      onClick={onManage}
       type="button"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{worker.name}</p>
-          <p className="mt-1 text-xs text-slate-500">Worker {worker.workerId.slice(0, 8)}</p>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-slate-300">
+          <Monitor className="size-4" />
         </div>
-        <StatusPill status={status} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-sm font-medium text-slate-100">
+              {selectedWorker?.name ?? 'Choose worker'}
+            </p>
+            {selectedWorkerStatus ? <StatusDot status={selectedWorkerStatus} /> : null}
+          </div>
+          <p className="mt-1 truncate text-xs text-slate-500">
+            {selectedWorker
+              ? `${selectedWorkerStatus ?? 'Offline'} - ${repoCount} repos`
+              : 'No worker selected'}
+          </p>
+        </div>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-        <div>
-          <p className="text-slate-500">Repos</p>
-          <p className="mt-1 text-slate-300">{repoCount}</p>
-        </div>
-        <div>
-          <p className="text-slate-500">Last seen</p>
-          <p className="mt-1 text-slate-300">{formatLastSeen(worker.lastSeenAt)}</p>
-        </div>
-      </div>
+      <Settings className="size-4 shrink-0 text-slate-400" />
+      <span className="sr-only">Manage desktop workers</span>
     </button>
+  )
+}
+
+function WorkerManagementDialog({
+  now,
+  onOpenChange,
+  onSelectWorker,
+  open,
+  repoCounts,
+  selectedWorkerId,
+  workers
+}: {
+  now: number
+  onOpenChange: (open: boolean) => void
+  onSelectWorker: (workerId: string) => void
+  open: boolean
+  repoCounts: Map<string, number>
+  selectedWorkerId: string | null
+  workers: DesktopWorkerSummary[]
+}): React.JSX.Element | null {
+  const updateWorkerName = useMutation(api.workers.updateDesktopWorkerName)
+  const hideWorker = useMutation(api.workers.hideDesktopWorker)
+  const [draftNames, setDraftNames] = useState<Record<string, string>>({})
+  const [busyWorkerId, setBusyWorkerId] = useState<string | null>(null)
+  const [dialogError, setDialogError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setDraftNames(Object.fromEntries(workers.map((worker) => [worker.workerId, worker.name])))
+    setDialogError(null)
+  }, [open, workers])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !busyWorkerId) {
+        onOpenChange(false)
+      }
+    }
+
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [busyWorkerId, onOpenChange, open])
+
+  if (!open) {
+    return null
+  }
+
+  async function handleRename(worker: DesktopWorkerSummary): Promise<void> {
+    const name = draftNames[worker.workerId]?.trim() ?? ''
+
+    if (!name || name === worker.name) {
+      return
+    }
+
+    setBusyWorkerId(worker.workerId)
+    setDialogError(null)
+
+    try {
+      await updateWorkerName({
+        workerId: worker.workerId,
+        name
+      })
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : 'Unable to rename worker.')
+    } finally {
+      setBusyWorkerId(null)
+    }
+  }
+
+  async function handleHide(worker: DesktopWorkerSummary): Promise<void> {
+    setBusyWorkerId(worker.workerId)
+    setDialogError(null)
+
+    try {
+      await hideWorker({
+        workerId: worker.workerId
+      })
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : 'Unable to hide worker.')
+    } finally {
+      setBusyWorkerId(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/62 px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6">
+      <section className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-hidden rounded-2xl border border-white/10 bg-slate-950/96 text-slate-100 shadow-2xl sm:max-h-[calc(100vh-3rem)]">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:px-6 sm:py-5">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-white">Desktop workers</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300/78">
+              Choose the worker this dashboard controls, or give a worker a local nickname.
+            </p>
+          </div>
+          <button
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-white/8 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={Boolean(busyWorkerId)}
+            onClick={() => onOpenChange(false)}
+            type="button"
+          >
+            <X className="size-5" />
+            <span className="sr-only">Close worker management</span>
+          </button>
+        </div>
+
+        <div className="max-h-[min(34rem,calc(100dvh-10rem))] space-y-3 overflow-y-auto px-4 py-4 sm:px-6">
+          {dialogError ? (
+            <p className="rounded-lg border border-rose-300/18 bg-rose-300/8 px-3 py-2 text-sm text-rose-100">
+              {dialogError}
+            </p>
+          ) : null}
+
+          {workers.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] px-3 py-3 text-sm text-slate-400">
+              No workers registered.
+            </p>
+          ) : (
+            workers.map((worker) => {
+              const status = getWorkerDisplayStatus(worker, now)
+              const isSelected = worker.workerId === selectedWorkerId
+              const draftName = draftNames[worker.workerId] ?? worker.name
+              const isBusy = busyWorkerId === worker.workerId
+              const canRename = draftName.trim() !== '' && draftName.trim() !== worker.name
+
+              return (
+                <article
+                  className={joinClassNames(
+                    'rounded-lg border p-3',
+                    isSelected
+                      ? 'border-blue-300/24 bg-blue-500/10'
+                      : 'border-white/10 bg-white/[0.025]'
+                  )}
+                  key={worker.workerId}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                    <button
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={isBusy}
+                      onClick={() => onSelectWorker(worker.workerId)}
+                      type="button"
+                    >
+                      <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-slate-300">
+                        <Monitor className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-medium text-slate-100">
+                            {worker.name}
+                          </span>
+                          <StatusPill status={status} />
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-slate-500">
+                          Worker {worker.workerId.slice(0, 8)} -{' '}
+                          {repoCounts.get(worker.workerId) ?? 0} repos - heartbeat{' '}
+                          {formatLastSeen(worker.lastSeenAt)}
+                        </span>
+                      </span>
+                    </button>
+
+                    {isSelected ? (
+                      <span className="inline-flex h-7 shrink-0 items-center rounded-full border border-blue-300/20 bg-blue-300/10 px-2.5 text-xs font-medium text-blue-100">
+                        Selected
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <label className="min-w-0 flex-1">
+                      <span className="sr-only">Worker nickname</span>
+                      <input
+                        className="h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-blue-300/60 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={Boolean(busyWorkerId)}
+                        maxLength={80}
+                        onChange={(event) =>
+                          setDraftNames((currentDraftNames) => ({
+                            ...currentDraftNames,
+                            [worker.workerId]: event.target.value
+                          }))
+                        }
+                        placeholder="Worker nickname"
+                        value={draftName}
+                      />
+                    </label>
+                    <button
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm text-slate-200 hover:bg-white/[0.075] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      disabled={Boolean(busyWorkerId) || !canRename}
+                      onClick={() => void handleRename(worker)}
+                      type="button"
+                    >
+                      {isBusy ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Pencil className="size-4" />
+                      )}
+                      Rename
+                    </button>
+                    <button
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-rose-300/16 bg-rose-300/8 px-3 text-sm text-rose-100 hover:bg-rose-300/14 disabled:cursor-not-allowed disabled:opacity-45"
+                      disabled={Boolean(busyWorkerId)}
+                      onClick={() => void handleHide(worker)}
+                      type="button"
+                    >
+                      {isBusy ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                      Hide
+                    </button>
+                  </div>
+                </article>
+              )
+            })
+          )}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -1617,6 +1865,18 @@ function StatusPill({ status }: { status: DisplayWorkerStatus }): React.JSX.Elem
     >
       {status}
     </span>
+  )
+}
+
+function StatusDot({ status }: { status: DisplayWorkerStatus }): React.JSX.Element {
+  return (
+    <span
+      aria-label={status}
+      className={joinClassNames(
+        'size-2 shrink-0 rounded-full',
+        status === 'Offline' ? 'bg-slate-500' : status === 'Busy' ? 'bg-blue-300' : 'bg-emerald-300'
+      )}
+    />
   )
 }
 

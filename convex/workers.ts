@@ -3,6 +3,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server'
 
 const workerStatusValidator = v.union(v.literal('online'), v.literal('busy'), v.literal('offline'))
+const WORKER_NAME_MAX_LENGTH = 80
 
 type WorkerStatus = 'online' | 'busy' | 'offline'
 
@@ -12,6 +13,20 @@ type CombinedDesktopWorker = {
   name: string
   status: WorkerStatus
   lastSeenAt: number | null
+}
+
+function sanitizeWorkerName(name: string): string {
+  const trimmedName = name.trim()
+
+  if (!trimmedName) {
+    throw new Error('Worker name is required.')
+  }
+
+  if (Array.from(trimmedName).length > WORKER_NAME_MAX_LENGTH) {
+    throw new Error(`Worker name must be ${WORKER_NAME_MAX_LENGTH} characters or fewer.`)
+  }
+
+  return trimmedName
 }
 
 async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise<string> {
@@ -73,12 +88,13 @@ export const registerDesktopWorker = mutation({
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
     const now = Date.now()
     const existingWorker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
-    const workerName = args.name.trim() || `Deskbinder Desktop ${args.workerId.slice(0, 8)}`
+    const workerName = sanitizeWorkerName(
+      args.name.trim() || `Deskbinder Desktop ${args.workerId.slice(0, 8)}`
+    )
     let worker: Doc<'desktopWorkers'>
 
     if (existingWorker) {
       await ctx.db.patch(existingWorker._id, {
-        name: workerName,
         updatedAt: now
       })
       const updatedWorker = await ctx.db.get(existingWorker._id)
@@ -129,6 +145,59 @@ export const registerDesktopWorker = mutation({
       worker,
       await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
     )
+  }
+})
+
+export const updateDesktopWorkerName = mutation({
+  args: {
+    workerId: v.string(),
+    name: v.string()
+  },
+  handler: async (ctx, args): Promise<CombinedDesktopWorker> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
+
+    if (!worker || worker.hiddenAt) {
+      throw new Error('Worker is not registered.')
+    }
+
+    await ctx.db.patch(worker._id, {
+      name: sanitizeWorkerName(args.name),
+      updatedAt: Date.now()
+    })
+
+    const updatedWorker = await ctx.db.get(worker._id)
+
+    if (!updatedWorker) {
+      throw new Error('Unable to update worker.')
+    }
+
+    return toCombinedDesktopWorker(
+      updatedWorker,
+      await getHeartbeat(ctx, ownerTokenIdentifier, args.workerId)
+    )
+  }
+})
+
+export const hideDesktopWorker = mutation({
+  args: {
+    workerId: v.string()
+  },
+  handler: async (ctx, args): Promise<{ workerId: string; hiddenAt: number }> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
+
+    if (!worker || worker.hiddenAt) {
+      throw new Error('Worker is not registered.')
+    }
+
+    const hiddenAt = Date.now()
+    await ctx.db.patch(worker._id, {
+      hiddenAt,
+      updatedAt: hiddenAt
+    })
+
+    return { workerId: args.workerId, hiddenAt }
   }
 })
 
@@ -183,7 +252,7 @@ export const getDesktopWorker = query({
     const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
     const worker = await getDesktopWorkerDoc(ctx, ownerTokenIdentifier, args.workerId)
 
-    if (!worker) {
+    if (!worker || worker.hiddenAt) {
       return null
     }
 
@@ -206,12 +275,14 @@ export const listDesktopWorkers = query({
       .collect()
 
     return await Promise.all(
-      workers.map(async (worker) =>
-        toCombinedDesktopWorker(
-          worker,
-          await getHeartbeat(ctx, ownerTokenIdentifier, worker.workerId)
+      workers
+        .filter((worker) => !worker.hiddenAt)
+        .map(async (worker) =>
+          toCombinedDesktopWorker(
+            worker,
+            await getHeartbeat(ctx, ownerTokenIdentifier, worker.workerId)
+          )
         )
-      )
     )
   }
 })
