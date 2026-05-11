@@ -217,7 +217,7 @@ function RepoSettingsDialogForm({
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter className="border-white/10 bg-white/3">
-                <AlertDialogCancel className="text-slate-200 hover:bg-white/8 hover:text-white">
+                <AlertDialogCancel className="text-slate-200 bg-white/2 hover:bg-white/8 hover:text-white">
                   Cancel
                 </AlertDialogCancel>
                 <AlertDialogAction
