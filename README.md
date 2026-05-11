@@ -4,6 +4,25 @@ Deskbinder is a Linux-first Electron, React, TypeScript, and Convex app for runn
 
 The renderer is intentionally untrusted. Local filesystem and process access stay behind explicit IPC handlers in the Electron main process, while the preload layer exposes a narrow typed API to the React UI.
 
+## Install on Linux
+
+Download the latest release:
+
+https://github.com/ZSalama/deskbinder/releases/latest
+
+### Ubuntu/Debian
+
+```bash
+sudo apt install ./Deskbinder-0.1.0-linux-amd64.deb
+```
+
+or
+
+```bash
+chmod +x Deskbinder-0.1.0.AppImage
+./Desbinder-0.1.0.AppImage
+```
+
 ## Features
 
 - Register local Git repositories from the desktop app.
