@@ -523,7 +523,6 @@ export function DashboardLayout(): React.JSX.Element {
   }, [completeAgentJob, desktopApi, interruptAgentJob, workerId])
 
   const transcript = activeRepo ? (transcriptsByRepoId[activeRepo.id] ?? []) : []
-  const activeRepoHasAgentRun = !!activeRepo && activeAgentRun?.repoId === activeRepo.id
   const interruptedRun = activeRepo ? interruptedRunsByRepoId[activeRepo.id] : undefined
   const remoteHumanInputRequest = remoteAgentJobs?.find(
     (job) => job.status === 'interrupted' && job.pendingHumanInputRequest
@@ -617,15 +616,6 @@ export function DashboardLayout(): React.JSX.Element {
     } finally {
       setIsDeletingWorkspace(false)
     }
-  }
-
-  function handleOpenRunWorkspaceDialog(): void {
-    if (!activeRepo) {
-      return
-    }
-
-    setRepoForWorkspaceScript(activeRepo)
-    setIsRunWorkspaceDialogOpen(true)
   }
 
   function handleOpenRunWorkspaceDialogForRepo(repo: DashboardRepo): void {
@@ -867,32 +857,6 @@ export function DashboardLayout(): React.JSX.Element {
     }
   }
 
-  async function handleCancelAgent(): Promise<void> {
-    const run = activeAgentRun
-
-    if (!run || !activeRepo || run.repoId !== activeRepo.id) {
-      return
-    }
-
-    try {
-      const response = await getDesktopApi().cancelAgent({
-        runId: run.runId
-      })
-
-      if (!response.ok) {
-        setRepoSetupNotice({
-          tone: 'error',
-          message: response.errorMessage ?? 'Unable to cancel Codex.'
-        })
-      }
-    } catch (error) {
-      setRepoSetupNotice({
-        tone: 'error',
-        message: error instanceof Error ? error.message : 'Unable to cancel Codex.'
-      })
-    }
-  }
-
   async function handleRemoteHumanInputSubmit(): Promise<void> {
     const request = remoteHumanInputRequest
     const responseText = remoteHumanInputDraft.trim()
@@ -968,14 +932,9 @@ export function DashboardLayout(): React.JSX.Element {
             <WorkspaceHeader
               activeRepo={activeRepo}
               authEmail={user?.primaryEmailAddress?.emailAddress ?? null}
-              authReady={isAuthenticated}
               devEnvironmentStatus={devEnvironmentStatus}
-              isAgentRunning={activeRepoHasAgentRun}
               isOpeningDevEnvironment={isOpeningDevEnvironment}
-              isRunningWorkspaceScript={isRunningWorkspaceScript}
-              onCancelAgent={() => void handleCancelAgent()}
               onOpenDevEnvironment={() => void handleOpenDevEnvironment()}
-              onNewWorkspace={handleOpenRunWorkspaceDialog}
             />
 
             {repoSetupNotice ? (
