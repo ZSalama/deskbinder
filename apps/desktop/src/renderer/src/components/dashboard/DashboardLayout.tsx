@@ -157,6 +157,7 @@ export function DashboardLayout(): React.JSX.Element {
   const [isRunWorkspaceDialogOpen, setIsRunWorkspaceDialogOpen] = useState(false)
   const [isRunningWorkspaceScript, setIsRunningWorkspaceScript] = useState(false)
   const [isOpeningDevEnvironment, setIsOpeningDevEnvironment] = useState(false)
+  const [openingTerminalRepoId, setOpeningTerminalRepoId] = useState<string | null>(null)
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
   const [bridgeError, setBridgeError] = useState<string | null>(initialBridgeError)
   const [desktopConvexSessionKey, setDesktopConvexSessionKey] = useState<string | null>(null)
@@ -665,6 +666,32 @@ export function DashboardLayout(): React.JSX.Element {
     }
   }
 
+  async function handleOpenRepoTerminal(repo: DashboardRepo): Promise<void> {
+    setOpeningTerminalRepoId(repo.id)
+
+    try {
+      const response = await getDesktopApi().openRepoTerminal({
+        repoId: repo.id
+      })
+
+      if (!response.ok) {
+        setRepoSetupNotice({
+          tone: 'warning',
+          message: response.errorMessage
+        })
+      } else {
+        setRepoSetupNotice(null)
+      }
+    } catch (error) {
+      setRepoSetupNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to open terminal.'
+      })
+    } finally {
+      setOpeningTerminalRepoId(null)
+    }
+  }
+
   async function handleRunWorkspaceScripts({
     autoStartDevEnvironment,
     workspaces
@@ -928,9 +955,11 @@ export function DashboardLayout(): React.JSX.Element {
             accountImageUrl={user?.imageUrl ?? null}
             isPickingFolder={isPickingFolder}
             onOpenSettings={handleOpenSettings}
+            onOpenTerminal={(repo) => void handleOpenRepoTerminal(repo)}
             onNewWorkspace={handleOpenRunWorkspaceDialogForRepo}
             onSelectRepo={setSelectedRepoId}
             onSetupRepo={() => void handlePickFolder()}
+            openingTerminalRepoId={openingTerminalRepoId}
             repos={repos}
             selectedRepoId={resolvedSelectedRepoId}
           />

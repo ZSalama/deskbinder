@@ -12,6 +12,8 @@ import type {
   LocalDeviceConfig,
   OpenDevEnvironmentInput,
   OpenDevEnvironmentResponse,
+  OpenRepoTerminalInput,
+  OpenRepoTerminalResponse,
   RunAgentInput,
   RunAgentResponse,
   RunWorkspaceScriptInput,
@@ -49,6 +51,7 @@ export interface DeskbinderApi {
     input: GetDevEnvironmentStatusInput
   ) => Promise<DevEnvironmentStatus>
   openDevEnvironment: (input: OpenDevEnvironmentInput) => Promise<OpenDevEnvironmentResponse>
+  openRepoTerminal: (input: OpenRepoTerminalInput) => Promise<OpenRepoTerminalResponse>
   runAgent: (input: RunAgentInput) => Promise<RunAgentResponse>
   cancelAgent: (input: CancelAgentRunInput) => Promise<CancelAgentRunResponse>
   onAgentEvent: (handler: (event: AgentRunEvent) => void) => () => void

@@ -1,5 +1,14 @@
 import { SignOutButton } from '@clerk/react'
-import { ChevronDown, Folder, GitBranch, LogOut, Plus, Settings2, Workflow } from 'lucide-react'
+import {
+  ChevronDown,
+  Folder,
+  GitBranch,
+  LogOut,
+  Plus,
+  Settings2,
+  SquareTerminal,
+  Workflow
+} from 'lucide-react'
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,8 +23,10 @@ type RepoSidebarProps = {
   isPickingFolder: boolean
   onNewWorkspace: (repo: DashboardRepo) => void
   onOpenSettings: (repo: DashboardRepo) => void
+  onOpenTerminal: (repo: DashboardRepo) => void
   onSelectRepo: (repoId: string) => void
   onSetupRepo: () => void
+  openingTerminalRepoId: string | null
   repos: DashboardRepo[]
   selectedRepoId: string | null
 }
@@ -93,8 +104,10 @@ export function RepoSidebar({
   isPickingFolder,
   onNewWorkspace,
   onOpenSettings,
+  onOpenTerminal,
   onSelectRepo,
   onSetupRepo,
+  openingTerminalRepoId,
   repos,
   selectedRepoId
 }: RepoSidebarProps): React.JSX.Element {
@@ -167,7 +180,9 @@ export function RepoSidebar({
                         key={repo.id}
                         isSelected={repo.id === selectedRepoId}
                         onOpenSettings={onOpenSettings}
+                        onOpenTerminal={onOpenTerminal}
                         onSelect={onSelectRepo}
+                        openingTerminalRepoId={openingTerminalRepoId}
                         repo={repo}
                       />
                     ))}
@@ -228,15 +243,20 @@ export function RepoSidebar({
 function RepoBranchItem({
   isSelected,
   onOpenSettings,
+  onOpenTerminal,
   onSelect,
+  openingTerminalRepoId,
   repo
 }: {
   isSelected: boolean
   onOpenSettings: (repo: DashboardRepo) => void
+  onOpenTerminal: (repo: DashboardRepo) => void
   onSelect: (repoId: string) => void
+  openingTerminalRepoId: string | null
   repo: DashboardRepo
 }): React.JSX.Element {
   const branchLabel = getBranchLabel(repo)
+  const isOpeningTerminal = openingTerminalRepoId === repo.id
 
   return (
     <div
@@ -266,6 +286,18 @@ function RepoBranchItem({
       ) : repo.sourceRepoId ? (
         <span className="mr-2 size-4 shrink-0 rounded-full border border-emerald-400 text-emerald-400" />
       ) : null}
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="hidden shrink-0 text-slate-400 hover:bg-white/8 hover:text-white group-hover:inline-flex focus-visible:inline-flex"
+        disabled={isOpeningTerminal}
+        onClick={() => onOpenTerminal(repo)}
+      >
+        <SquareTerminal className="size-3.5" />
+        <span className="sr-only">Open terminal for {repo.name}</span>
+      </Button>
 
       <Button
         type="button"

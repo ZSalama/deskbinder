@@ -165,6 +165,19 @@ export type OpenDevEnvironmentInput = {
   repoId: string
 }
 
+export type OpenRepoTerminalInput = {
+  repoId: string
+}
+
+export type OpenRepoTerminalResponse =
+  | {
+      ok: true
+    }
+  | {
+      ok: false
+      errorMessage: string
+    }
+
 export type OpenDevEnvironmentResponse =
   | {
       ok: true

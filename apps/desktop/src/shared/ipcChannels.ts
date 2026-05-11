@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   deleteWorkspace: 'v1.workspace.delete',
   getDevEnvironmentStatus: 'v1.workspace.devEnvironment.status',
   openDevEnvironment: 'v1.workspace.devEnvironment.open',
+  openRepoTerminal: 'v1.repo.openTerminal',
   runAgent: 'v1.agent.run',
   cancelAgent: 'v1.agent.cancel',
   agentEvent: 'v1.agent.event'

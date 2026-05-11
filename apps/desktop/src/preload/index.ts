@@ -19,6 +19,7 @@ const api: DeskbinderApi = {
   getDevEnvironmentStatus: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.getDevEnvironmentStatus, input),
   openDevEnvironment: (input) => ipcRenderer.invoke(IPC_CHANNELS.openDevEnvironment, input),
+  openRepoTerminal: (input) => ipcRenderer.invoke(IPC_CHANNELS.openRepoTerminal, input),
   runAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.runAgent, input),
   cancelAgent: (input) => ipcRenderer.invoke(IPC_CHANNELS.cancelAgent, input),
   onAgentEvent: (handler) => {

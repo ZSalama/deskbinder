@@ -25,6 +25,7 @@ import {
   getDevEnvironmentStatus,
   openDevEnvironment
 } from './services/devEnvironment'
+import { openTerminalAtPath } from './services/terminalLauncher'
 import { IPC_CHANNELS } from '../shared/ipcChannels'
 import icon from '../../resources/icon.png?asset'
 
@@ -844,6 +845,26 @@ app.whenReady().then(() => {
         openExternal: (url) => shell.openExternal(url)
       }
     )
+  })
+  ipcMain.handle(IPC_CHANNELS.openRepoTerminal, async (_, input) => {
+    const repoId = getStringInput(input, 'repoId')
+
+    if (!repoId || !convexRepoStore) {
+      return {
+        ok: false,
+        errorMessage: 'Repository is unavailable.'
+      }
+    }
+
+    try {
+      const repo = await convexRepoStore.getRepoSummary(repoId)
+      return openTerminalAtPath(repo.repoPath)
+    } catch {
+      return {
+        ok: false,
+        errorMessage: 'Repository is unavailable.'
+      }
+    }
   })
   ipcMain.handle(IPC_CHANNELS.runAgent, async (event, input) => {
     if (!agentRunner) {
