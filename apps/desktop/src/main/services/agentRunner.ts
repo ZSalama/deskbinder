@@ -51,6 +51,7 @@ type ActiveAgentRun = {
   stdout: StreamState
   timeout: NodeJS.Timeout
   webContents: WebContents
+  workspacePath: string
   requestedStatus: Exclude<AgentRunStatus, 'running'> | null
   sequence: number
 }
@@ -362,7 +363,9 @@ function buildAgentRunLogPaths(
 }
 
 export class AgentRunner {
-  private activeRun: ActiveAgentRun | null = null
+  private activeRunsByRunId = new Map<string, ActiveAgentRun>()
+  private activeRunsByWorkspacePath = new Map<string, ActiveAgentRun>()
+  private startingWorkspacePaths = new Set<string>()
 
   constructor(
     private readonly resolveRepoForExecution: ResolveRepoForExecution,
@@ -370,13 +373,6 @@ export class AgentRunner {
   ) {}
 
   async run(input: unknown, webContents: WebContents): Promise<RunAgentResponse> {
-    if (this.activeRun) {
-      return {
-        ok: false,
-        errorMessage: 'A Codex run is already active.'
-      }
-    }
-
     let validatedInput: ValidatedRunInput
 
     try {
@@ -387,6 +383,20 @@ export class AgentRunner {
         errorMessage: error instanceof Error ? error.message : 'Unable to start Codex.'
       }
     }
+
+    const workspacePath = validatedInput.workspacePath
+
+    if (
+      this.activeRunsByWorkspacePath.has(workspacePath) ||
+      this.startingWorkspacePaths.has(workspacePath)
+    ) {
+      return {
+        ok: false,
+        errorMessage: 'A Codex run is already active for this workspace.'
+      }
+    }
+
+    this.startingWorkspacePaths.add(workspacePath)
 
     const runId = randomUUID()
     const startedAt = Date.now()
@@ -444,6 +454,7 @@ export class AgentRunner {
         }
       )
     } catch {
+      this.startingWorkspacePaths.delete(workspacePath)
       return {
         ok: false,
         errorMessage: 'Codex run output files could not be prepared.'
@@ -454,16 +465,16 @@ export class AgentRunner {
       resolveCompleted = resolvePromise
     })
     const timeout = setTimeout(() => {
-      const run = this.activeRun
+      const run = this.activeRunsByRunId.get(runId)
 
-      if (run?.runId !== runId) {
+      if (!run) {
         return
       }
 
       run.requestedStatus = 'timed_out'
       terminateProcess(child, 'SIGTERM')
       void sleep(PROCESS_SHUTDOWN_WAIT_MS).then(() => {
-        if (this.activeRun?.runId !== runId) {
+        if (!this.activeRunsByRunId.has(runId)) {
           return
         }
 
@@ -497,11 +508,14 @@ export class AgentRunner {
       stdout,
       timeout,
       webContents,
+      workspacePath,
       requestedStatus: null,
       sequence: 0
     }
 
-    this.activeRun = activeRun
+    this.startingWorkspacePaths.delete(workspacePath)
+    this.activeRunsByRunId.set(runId, activeRun)
+    this.activeRunsByWorkspacePath.set(workspacePath, activeRun)
 
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
@@ -545,7 +559,7 @@ export class AgentRunner {
 
   cancel(input: unknown): CancelAgentRunResponse {
     const runId = this.getRunIdInput(input)
-    const activeRun = this.activeRun
+    const activeRun = runId ? this.activeRunsByRunId.get(runId) : undefined
 
     if (!runId) {
       return {
@@ -556,7 +570,7 @@ export class AgentRunner {
       }
     }
 
-    if (!activeRun || activeRun.runId !== runId) {
+    if (!activeRun) {
       return {
         ok: false,
         runId,
@@ -568,7 +582,7 @@ export class AgentRunner {
     activeRun.requestedStatus = 'cancelled'
     terminateProcess(activeRun.child, 'SIGTERM')
     void sleep(PROCESS_SHUTDOWN_WAIT_MS).then(() => {
-      if (this.activeRun?.runId !== runId) {
+      if (!this.activeRunsByRunId.has(runId)) {
         return
       }
 
@@ -582,22 +596,27 @@ export class AgentRunner {
     }
   }
 
-  async cancelActiveRun(): Promise<void> {
-    const activeRun = this.activeRun
+  async cancelActiveRuns(): Promise<void> {
+    const activeRuns = [...this.activeRunsByRunId.values()]
 
-    if (!activeRun) {
+    if (activeRuns.length === 0) {
       return
     }
 
-    activeRun.requestedStatus = 'cancelled'
-    terminateProcess(activeRun.child, 'SIGTERM')
-    await sleep(PROCESS_SHUTDOWN_WAIT_MS)
-
-    if (this.activeRun?.runId === activeRun.runId) {
-      terminateProcess(activeRun.child, 'SIGKILL')
+    for (const activeRun of activeRuns) {
+      activeRun.requestedStatus = 'cancelled'
+      terminateProcess(activeRun.child, 'SIGTERM')
     }
 
-    await activeRun.completed
+    await sleep(PROCESS_SHUTDOWN_WAIT_MS)
+
+    for (const activeRun of activeRuns) {
+      if (this.activeRunsByRunId.has(activeRun.runId)) {
+        terminateProcess(activeRun.child, 'SIGKILL')
+      }
+    }
+
+    await Promise.all(activeRuns.map((activeRun) => activeRun.completed))
   }
 
   private async validateRunInput(input: unknown): Promise<ValidatedRunInput> {
@@ -783,8 +802,10 @@ export class AgentRunner {
       stderrTruncated: activeRun.stderr.truncated
     })
 
-    if (this.activeRun?.runId === activeRun.runId) {
-      this.activeRun = null
+    this.activeRunsByRunId.delete(activeRun.runId)
+
+    if (this.activeRunsByWorkspacePath.get(activeRun.workspacePath)?.runId === activeRun.runId) {
+      this.activeRunsByWorkspacePath.delete(activeRun.workspacePath)
     }
   }
 }

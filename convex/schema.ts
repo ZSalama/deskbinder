@@ -153,6 +153,12 @@ export default defineSchema({
       'ownerTokenIdentifier',
       'targetWorkerId',
       'targetRepoId'
+    ])
+    .index('by_ownerTokenIdentifier_and_targetWorkerId_and_targetRepoId_and_status', [
+      'ownerTokenIdentifier',
+      'targetWorkerId',
+      'targetRepoId',
+      'status'
     ]),
 
   agentJobAttempts: defineTable({

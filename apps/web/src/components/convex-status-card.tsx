@@ -228,8 +228,7 @@ function isActiveAgentJobStatus(status: RemoteAgentJobStatus): boolean {
     status === 'queued' ||
     status === 'claimed' ||
     status === 'setup_running' ||
-    status === 'agent_running' ||
-    status === 'interrupted'
+    status === 'agent_running'
   )
 }
 
@@ -704,6 +703,13 @@ function RemoteDashboard({
             <Notice
               tone="warning"
               message="This desktop worker is offline. Start the Electron app before issuing local environment commands."
+            />
+          ) : null}
+
+          {selectedWorker && selectedWorkerStatus === 'Busy' ? (
+            <Notice
+              tone="warning"
+              message="This worker is running at least one workspace job. Idle workspaces on the same worker can still accept agent jobs."
             />
           ) : null}
 
@@ -1477,7 +1483,7 @@ function WorkspaceHeader({
     selectedRepo && selectedWorker ? (
       <div className="flex shrink-0 items-center gap-1.5" aria-label="Repository and worker status">
         <HeaderStatusIcon
-          detail={`${selectedWorker.name} - ${selectedWorkerStatus ?? 'Offline'} - heartbeat ${formatLastSeen(selectedWorker.lastSeenAt)}`}
+          detail={`${selectedWorker.name} - ${selectedWorkerStatus ?? 'Offline'}${selectedWorkerStatus === 'Busy' ? ' running one or more workspace jobs' : ''} - heartbeat ${formatLastSeen(selectedWorker.lastSeenAt)}`}
           icon={<Monitor className="size-4" />}
           label="Worker"
           tone={connected ? (selectedWorkerStatus === 'Busy' ? 'busy' : 'good') : 'muted'}

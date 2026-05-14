@@ -148,7 +148,7 @@ async function getProductionRendererUrl(): Promise<URL> {
 
 async function cleanupBeforeQuit(): Promise<void> {
   if (agentRunner) {
-    await agentRunner.cancelActiveRun()
+    await agentRunner.cancelActiveRuns()
   }
 
   if (localConfigStore) {

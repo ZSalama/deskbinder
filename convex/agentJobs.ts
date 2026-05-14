@@ -11,6 +11,8 @@ const BRANCH_NAME_MAX_CHARACTERS = 240
 const QUEUED_JOB_LIMIT = 5
 const RECENT_JOB_LIMIT = 20
 const UNKNOWN_CURRENT_BRANCH = 'unknown'
+const DUPLICATE_WORKSPACE_JOB_ERROR =
+  'An agent job is already queued or running for this workspace.'
 
 const desktopCompletionStatusValidator = v.union(
   v.literal('succeeded'),
@@ -30,6 +32,13 @@ type AgentJobStatus =
   | 'agent_succeeded'
   | 'cancelled'
   | 'interrupted'
+
+const BLOCKING_WORKSPACE_JOB_STATUSES: AgentJobStatus[] = [
+  'queued',
+  'claimed',
+  'setup_running',
+  'agent_running'
+]
 
 type DesktopCompletionStatus = 'succeeded' | 'failed' | 'cancelled' | 'timed_out' | 'interrupted'
 
@@ -269,6 +278,34 @@ async function requireOwnedAttempt(
   return attempt
 }
 
+async function getBlockingWorkspaceJob(
+  ctx: QueryCtx | MutationCtx,
+  ownerTokenIdentifier: string,
+  targetWorkerId: string,
+  targetRepoId: string,
+  excludeJobId?: Id<'agentJobs'>
+): Promise<Doc<'agentJobs'> | null> {
+  for (const status of BLOCKING_WORKSPACE_JOB_STATUSES) {
+    const jobs = await ctx.db
+      .query('agentJobs')
+      .withIndex('by_ownerTokenIdentifier_and_targetWorkerId_and_targetRepoId_and_status', (q) =>
+        q
+          .eq('ownerTokenIdentifier', ownerTokenIdentifier)
+          .eq('targetWorkerId', targetWorkerId)
+          .eq('targetRepoId', targetRepoId)
+          .eq('status', status)
+      )
+      .take(2)
+    const blockingJob = jobs.find((candidateJob) => candidateJob._id !== excludeJobId)
+
+    if (blockingJob) {
+      return blockingJob
+    }
+  }
+
+  return null
+}
+
 export const createAgentJob = mutation({
   args: {
     targetWorkerId: v.string(),
@@ -298,6 +335,17 @@ export const createAgentJob = mutation({
 
     if (!repoState || !isRunnableRepoState(repoState)) {
       throw new Error(repoState?.readinessMessage ?? 'Repository is not ready for agent jobs.')
+    }
+
+    const blockingJob = await getBlockingWorkspaceJob(
+      ctx,
+      ownerTokenIdentifier,
+      args.targetWorkerId,
+      args.targetRepoId
+    )
+
+    if (blockingJob) {
+      throw new Error(DUPLICATE_WORKSPACE_JOB_ERROR)
     }
 
     const now = Date.now()
@@ -379,6 +427,18 @@ export const claimAgentJob = mutation({
     const job = await requireOwnedJob(ctx, ownerTokenIdentifier, args.jobId, args.workerId)
 
     if (job.status !== 'queued') {
+      return null
+    }
+
+    const blockingJob = await getBlockingWorkspaceJob(
+      ctx,
+      ownerTokenIdentifier,
+      args.workerId,
+      job.targetRepoId,
+      job._id
+    )
+
+    if (blockingJob) {
       return null
     }
 
@@ -706,6 +766,18 @@ export const claimAnsweredHumanInputRequest = mutation({
     const job = await requireOwnedJob(ctx, ownerTokenIdentifier, request.jobId, args.workerId)
 
     if (job.status !== 'interrupted') {
+      return null
+    }
+
+    const blockingJob = await getBlockingWorkspaceJob(
+      ctx,
+      ownerTokenIdentifier,
+      args.workerId,
+      job.targetRepoId,
+      job._id
+    )
+
+    if (blockingJob) {
       return null
     }
 

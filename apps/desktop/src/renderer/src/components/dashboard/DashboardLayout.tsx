@@ -163,7 +163,9 @@ export function DashboardLayout(): React.JSX.Element {
   const [desktopConvexSessionKey, setDesktopConvexSessionKey] = useState<string | null>(null)
   const [repoSetupNotice, setRepoSetupNotice] = useState<RepoSetupNotice | null>(null)
   const [transcriptsByRepoId, setTranscriptsByRepoId] = useState<TranscriptsByRepoId>({})
-  const [activeAgentRun, setActiveAgentRun] = useState<ActiveAgentRun | null>(null)
+  const [activeAgentRunsByRepoId, setActiveAgentRunsByRepoId] = useState<
+    Record<string, ActiveAgentRun>
+  >({})
   const [interruptedRunsByRepoId, setInterruptedRunsByRepoId] = useState<InterruptedRunsByRepoId>(
     {}
   )
@@ -184,6 +186,8 @@ export function DashboardLayout(): React.JSX.Element {
     () => repos.find((repo) => repo.id === resolvedSelectedRepoId) ?? null,
     [repos, resolvedSelectedRepoId]
   )
+  const activeRunCount = Object.keys(activeAgentRunsByRepoId).length
+  const activeRepoRun = activeRepo ? activeAgentRunsByRepoId[activeRepo.id] : undefined
   const desktopConvexSessionTarget =
     desktopApi && isSignedIn && convexUrl && sessionId ? `${convexUrl}:${sessionId}` : null
   const isDesktopConvexSessionAvailable =
@@ -193,7 +197,7 @@ export function DashboardLayout(): React.JSX.Element {
   const { error: workerHeartbeatError } = useWorkerHeartbeat({
     deviceConfig,
     enabled: isAuthenticated,
-    status: activeAgentRun ? 'busy' : 'online'
+    status: activeRunCount > 0 ? 'busy' : 'online'
   })
   const { error: repoMetadataSyncError } = useRepoStateSync({
     deviceConfig,
@@ -220,12 +224,17 @@ export function DashboardLayout(): React.JSX.Element {
       onNotice: handleRemoteBranchNotice,
       onSelectedRepoId: setSelectedRepoId
     })
-  const { activeJob: remoteAgentJob, error: remoteAgentJobRunnerError } = useRemoteAgentJobRunner({
-    deviceConfig,
-    desktopApi,
-    enabled: isDesktopConvexSessionAvailable,
-    onNotice: handleRemoteBranchNotice
-  })
+  const { activeJobs: remoteAgentJobsRunning, error: remoteAgentJobRunnerError } =
+    useRemoteAgentJobRunner({
+      deviceConfig,
+      desktopApi,
+      enabled: isDesktopConvexSessionAvailable,
+      onNotice: handleRemoteBranchNotice
+    })
+  const runningAgentWorkspaceCount = new Set([
+    ...Object.keys(activeAgentRunsByRepoId),
+    ...remoteAgentJobsRunning.map((job) => job.targetRepoId)
+  ]).size
   const remoteAgentJobs = useQuery(
     api.agentJobs.listRecentAgentJobs,
     isAuthenticated && workerId && activeRepo
@@ -330,10 +339,13 @@ export function DashboardLayout(): React.JSX.Element {
     return desktopApi.onAgentEvent((event) => {
       if (event.type === 'started') {
         runRepoIdByRunId.current.set(event.runId, event.repoId)
-        setActiveAgentRun({
-          runId: event.runId,
-          repoId: event.repoId
-        })
+        setActiveAgentRunsByRepoId((currentRuns) => ({
+          ...currentRuns,
+          [event.repoId]: {
+            runId: event.runId,
+            repoId: event.repoId
+          }
+        }))
         setTranscriptsByRepoId((currentTranscripts) => {
           const repoTranscript = currentTranscripts[event.repoId] ?? []
 
@@ -447,9 +459,15 @@ export function DashboardLayout(): React.JSX.Element {
           [repoId]: nextTranscript
         }
       })
-      setActiveAgentRun((currentRun) =>
-        currentRun?.runId === completedEvent.runId ? null : currentRun
-      )
+      setActiveAgentRunsByRepoId((currentRuns) => {
+        if (currentRuns[repoId]?.runId !== completedEvent.runId) {
+          return currentRuns
+        }
+
+        const nextRuns = { ...currentRuns }
+        delete nextRuns[repoId]
+        return nextRuns
+      })
       runRepoIdByRunId.current.delete(completedEvent.runId)
       const localJob = localJobByRunId.current.get(completedEvent.runId)
 
@@ -745,7 +763,7 @@ export function DashboardLayout(): React.JSX.Element {
     const targetRepo = activeRepo
     const promptText = draftPrompt.trim()
 
-    if (!targetRepo || !promptText || activeAgentRun || !workerId) {
+    if (!targetRepo || !promptText || activeRepoRun || !workerId) {
       return
     }
 
@@ -819,10 +837,13 @@ export function DashboardLayout(): React.JSX.Element {
         runId: response.runId
       })
       runRepoIdByRunId.current.set(response.runId, response.repoId)
-      setActiveAgentRun({
-        runId: response.runId,
-        repoId: response.repoId
-      })
+      setActiveAgentRunsByRepoId((currentRuns) => ({
+        ...currentRuns,
+        [response.repoId]: {
+          runId: response.runId,
+          repoId: response.repoId
+        }
+      }))
       setTranscriptsByRepoId((currentTranscripts) => {
         const repoTranscript = currentTranscripts[response.repoId] ?? []
 
@@ -981,9 +1002,10 @@ export function DashboardLayout(): React.JSX.Element {
               </div>
             ) : null}
 
-            {remoteAgentJob ? (
+            {runningAgentWorkspaceCount > 0 ? (
               <div className="border-b border-blue-300/12 bg-blue-300/7 px-6 py-3 text-sm text-blue-50">
-                Running remote agent job for repo {remoteAgentJob.targetRepoId.slice(0, 8)}.
+                Running agents in {runningAgentWorkspaceCount}{' '}
+                {runningAgentWorkspaceCount === 1 ? 'workspace' : 'workspaces'}.
               </div>
             ) : null}
 
@@ -1033,9 +1055,9 @@ export function DashboardLayout(): React.JSX.Element {
 
             <PromptComposer
               disabled={
-                !activeRepo || activeAgentRun !== null || activeRepo.agentExecutable !== 'codex'
+                !activeRepo || Boolean(activeRepoRun) || activeRepo.agentExecutable !== 'codex'
               }
-              isRunning={activeAgentRun !== null}
+              isRunning={Boolean(activeRepoRun)}
               agentExecutable={activeRepo?.agentExecutable ?? 'codex'}
               onSubmit={() => void handleSubmitPrompt()}
               prompt={draftPrompt}
