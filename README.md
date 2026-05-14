@@ -20,7 +20,7 @@ or
 
 ```bash
 chmod +x Deskbinder-0.1.0.AppImage
-./Desbinder-0.1.0.AppImage
+./Deskbinder-0.1.0.AppImage
 ```
 
 ## Features

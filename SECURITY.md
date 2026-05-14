@@ -4,7 +4,7 @@ Deskbinder is a local desktop worker plus a Convex-backed web companion for runn
 
 ## Reporting Issues
 
-Please report security issues privately to the project maintainer instead of opening a public issue. If no private advisory channel is available for this repository, contact the maintainer using the email listed in the package metadata.
+Please report security issues privately to the project maintainer instead of opening a public issue.
 
 Include the affected version or commit, reproduction steps, impact, and any relevant logs with secrets removed.
 
