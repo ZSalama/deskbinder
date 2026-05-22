@@ -69,6 +69,8 @@ type DesktopRepoConfigInput = {
   workspaceBranchName?: string
 }
 
+type DesktopRepoStateFields = Omit<Doc<'desktopRepoStates'>, '_creationTime' | '_id'>
+
 async function requireOwnerTokenIdentifier(ctx: QueryCtx | MutationCtx): Promise<string> {
   const identity = await ctx.auth.getUserIdentity()
 
@@ -265,6 +267,19 @@ function repoConfigNeedsPatch(
     currentRepo.agentExecutable !== nextRepo.agentExecutable ||
     currentRepo.sourceLocalRepoId !== nextRepo.sourceLocalRepoId ||
     currentRepo.workspaceBranchName !== nextRepo.workspaceBranchName
+  )
+}
+
+function repoStateNeedsPatch(
+  currentState: Doc<'desktopRepoStates'>,
+  nextState: DesktopRepoStateFields
+): boolean {
+  return (
+    currentState.currentBranch !== nextState.currentBranch ||
+    currentState.isValid !== nextState.isValid ||
+    currentState.readinessStatus !== nextState.readinessStatus ||
+    (nextState.readinessMessage !== undefined &&
+      currentState.readinessMessage !== nextState.readinessMessage)
   )
 }
 
@@ -588,7 +603,9 @@ export const syncDesktopRepoStates = mutation({
       }
 
       if (existingState) {
-        await ctx.db.patch(existingState._id, stateFields)
+        if (repoStateNeedsPatch(existingState, stateFields)) {
+          await ctx.db.patch(existingState._id, stateFields)
+        }
       } else {
         await ctx.db.insert('desktopRepoStates', stateFields)
       }
