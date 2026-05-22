@@ -156,7 +156,7 @@ export function RepoSidebar({
                           </span>
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="right" sideOffset={10}>
+                      <TooltipContent align="start" side="bottom" sideOffset={6}>
                         {group.name}
                       </TooltipContent>
                     </Tooltip>
@@ -261,37 +261,37 @@ function RepoBranchItem({
   return (
     <div
       className={cn(
-        'group relative flex h-9 items-center gap-2 rounded-md border border-transparent transition-colors',
+        'group relative grid h-9 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-1 rounded-md border border-transparent transition-colors',
         isSelected ? 'bg-white/[0.065] text-blue-300' : 'text-slate-400 hover:bg-white/[0.04]'
       )}
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 basis-0 items-center gap-2 overflow-hidden px-4 text-left text-sm"
+        className="flex min-w-0 items-center gap-2 overflow-hidden px-3 text-left text-sm"
         onClick={() => onSelect(repo.id)}
       >
         <GitBranch className="size-4 shrink-0" />
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="block min-w-0 max-w-[10.5rem] truncate">{branchLabel}</span>
+            <span className="block min-w-0 flex-1 truncate">{branchLabel}</span>
           </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={10}>
+          <TooltipContent align="start" side="bottom" sideOffset={6}>
             {branchLabel}
           </TooltipContent>
         </Tooltip>
       </button>
 
       {repo.workspaceProcesses?.length ? (
-        <span className="mr-2 size-2 shrink-0 rounded-full bg-blue-400" />
+        <span className="size-2 shrink-0 rounded-full bg-blue-400" />
       ) : repo.sourceRepoId ? (
-        <span className="mr-2 size-4 shrink-0 rounded-full border border-emerald-400 text-emerald-400" />
+        <span className="size-4 shrink-0 rounded-full border border-emerald-400 text-emerald-400" />
       ) : null}
 
       <Button
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="hidden shrink-0 text-slate-400 hover:bg-white/8 hover:text-white group-hover:inline-flex focus-visible:inline-flex"
+        className="pointer-events-none shrink-0 text-slate-400 opacity-0 hover:bg-white/8 hover:text-white group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
         disabled={isOpeningTerminal}
         onClick={() => onOpenTerminal(repo)}
       >
@@ -303,7 +303,7 @@ function RepoBranchItem({
         type="button"
         variant="ghost"
         size="icon-xs"
-        className="mr-1 hidden shrink-0 text-slate-400 hover:bg-white/8 hover:text-white group-hover:inline-flex focus-visible:inline-flex"
+        className="pointer-events-none mr-1 shrink-0 text-slate-400 opacity-0 hover:bg-white/8 hover:text-white group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
         onClick={() => onOpenSettings(repo)}
       >
         <Settings2 className="size-3.5" />
