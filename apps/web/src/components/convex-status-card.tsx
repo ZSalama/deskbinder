@@ -377,7 +377,6 @@ function ConnectedStatus(): React.JSX.Element {
   const { isLoaded, isSignedIn } = useAuth()
   const viewer = useQuery(api.auth.viewer, isSignedIn ? {} : 'skip')
   const workers = useQuery(api.workers.listDesktopWorkers, isSignedIn ? {} : 'skip')
-  const repos = useQuery(api.repos.listDesktopRepos, isSignedIn ? {} : 'skip')
   const [now, setNow] = useState(() => Date.now())
   const [requestedWorkerId, setRequestedWorkerId] = useState<string | null>(null)
   const [requestedRepoKey, setRequestedRepoKey] = useState<string | null>(null)
@@ -401,6 +400,11 @@ function ConnectedStatus(): React.JSX.Element {
 
     return workers[0].workerId
   }, [requestedWorkerId, workers])
+  const scopedRepos = useQuery(
+    api.repos.listDesktopRepos,
+    isSignedIn && selectedWorkerId ? { workerId: selectedWorkerId } : 'skip'
+  )
+  const repos = selectedWorkerId ? scopedRepos : workers ? [] : undefined
 
   const selectedRepoKey = useMemo(() => {
     if (!repos || repos.length === 0 || !selectedWorkerId) {
@@ -793,15 +797,7 @@ function RemoteSidebar({
     [selectedWorkerId, workers]
   )
   const selectedWorkerStatus = selectedWorker ? getWorkerDisplayStatus(selectedWorker, now) : null
-  const workerRepoCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-
-    for (const repo of repos ?? []) {
-      counts.set(repo.workerId, (counts.get(repo.workerId) ?? 0) + 1)
-    }
-
-    return counts
-  }, [repos])
+  const selectedWorkerRepoCount = workerRepos.length
 
   useEffect(() => {
     if (!isOpen) {
@@ -948,9 +944,7 @@ function RemoteSidebar({
               ) : (
                 <SelectedWorkerControl
                   onManage={() => setIsWorkerDialogOpen(true)}
-                  repoCount={
-                    selectedWorker ? (workerRepoCounts.get(selectedWorker.workerId) ?? 0) : 0
-                  }
+                  repoCount={selectedWorker ? selectedWorkerRepoCount : 0}
                   selectedWorker={selectedWorker}
                   selectedWorkerStatus={selectedWorkerStatus}
                 />
@@ -992,7 +986,7 @@ function RemoteSidebar({
           now={now}
           onOpenChange={setIsWorkerDialogOpen}
           onSelectWorker={setSelectedWorkerId}
-          repoCounts={workerRepoCounts}
+          selectedWorkerRepoCount={repos ? selectedWorkerRepoCount : null}
           selectedWorkerId={selectedWorkerId}
           workers={workers ?? []}
         />
@@ -1046,14 +1040,14 @@ function WorkerManagementDialog({
   now,
   onOpenChange,
   onSelectWorker,
-  repoCounts,
+  selectedWorkerRepoCount,
   selectedWorkerId,
   workers
 }: {
   now: number
   onOpenChange: (open: boolean) => void
   onSelectWorker: (workerId: string) => void
-  repoCounts: Map<string, number>
+  selectedWorkerRepoCount: number | null
   selectedWorkerId: string | null
   workers: DesktopWorkerSummary[]
 }): React.JSX.Element | null {
@@ -1156,6 +1150,10 @@ function WorkerManagementDialog({
               const draftName = draftNames[worker.workerId] ?? worker.name
               const isBusy = busyWorkerId === worker.workerId
               const canRename = draftName.trim() !== '' && draftName.trim() !== worker.name
+              const repoCountLabel =
+                isSelected && selectedWorkerRepoCount !== null
+                  ? ` - ${selectedWorkerRepoCount} repos`
+                  : ''
 
               return (
                 <article
@@ -1185,9 +1183,8 @@ function WorkerManagementDialog({
                           <StatusPill status={status} />
                         </span>
                         <span className="mt-1 block truncate text-xs text-slate-500">
-                          Worker {worker.workerId.slice(0, 8)} -{' '}
-                          {repoCounts.get(worker.workerId) ?? 0} repos - heartbeat{' '}
-                          {formatLastSeen(worker.lastSeenAt)}
+                          Worker {worker.workerId.slice(0, 8)}
+                          {repoCountLabel} - heartbeat {formatLastSeen(worker.lastSeenAt)}
                         </span>
                       </span>
                     </button>
