@@ -194,6 +194,47 @@ describe('desktop repo config ownership', () => {
     })
   })
 
+  test('sync skips repo state patches when only freshness timestamps change', async () => {
+    const t = createTestBackend()
+    await registerWorker(t, 'worker-a')
+    await createRepo(t, 'worker-a')
+
+    await t.mutation(api.repos.syncDesktopRepoStates, {
+      workerId: 'worker-a',
+      repos: [
+        {
+          localRepoId: 'repo-1',
+          currentBranch: 'main',
+          isValid: true,
+          readinessStatus: 'ready',
+          readinessMessage: 'Ready.',
+          lastSeenAt: 123
+        }
+      ]
+    })
+
+    const syncedRepos = await t.mutation(api.repos.syncDesktopRepoStates, {
+      workerId: 'worker-a',
+      repos: [
+        {
+          localRepoId: 'repo-1',
+          currentBranch: 'main',
+          isValid: true,
+          readinessStatus: 'ready',
+          readinessMessage: 'Ready.',
+          lastSeenAt: 456
+        }
+      ]
+    })
+
+    expect(syncedRepos[0]).toMatchObject({
+      localRepoId: 'repo-1',
+      currentBranch: 'main',
+      readinessStatus: 'ready',
+      lastSeenAt: 123
+    })
+  })
+
   test('updates settings through another worker on the account-scoped config', async () => {
     const t = createTestBackend()
     await registerWorker(t, 'worker-a')
