@@ -46,6 +46,18 @@ type DesktopRepoConfigSummary = {
   lastSeenAt: number
 }
 
+type DesktopRepoConfigForSync = {
+  workerId: string
+  localRepoId: string
+  sourceLocalRepoId?: string
+  name: string
+  repoPath: string
+  workspaceScriptPath: string
+  defaultScriptArgs?: string
+  agentExecutable: AgentExecutable
+  workspaceBranchName?: string
+}
+
 type DesktopRepoConfigInput = {
   localRepoId: string
   sourceLocalRepoId?: string
@@ -187,6 +199,20 @@ function toDesktopRepoSummary(
     readinessStatus: state?.readinessStatus ?? 'missing_repo',
     readinessMessage: state?.readinessMessage ?? 'Repository has not been checked on this desktop.',
     lastSeenAt: state?.lastSeenAt ?? 0
+  }
+}
+
+function toDesktopRepoConfigForSync(repo: Doc<'desktopRepoConfigs'>): DesktopRepoConfigForSync {
+  return {
+    workerId: repo.workerId,
+    localRepoId: repo.localRepoId,
+    sourceLocalRepoId: repo.sourceLocalRepoId,
+    name: repo.name,
+    repoPath: repo.repoPath,
+    workspaceScriptPath: repo.workspaceScriptPath,
+    defaultScriptArgs: repo.defaultScriptArgs,
+    agentExecutable: repo.agentExecutable,
+    workspaceBranchName: repo.workspaceBranchName
   }
 }
 
@@ -494,6 +520,18 @@ export const listDesktopRepos = query({
         )
       )
     )
+  }
+})
+
+export const listDesktopRepoConfigsForSync = query({
+  args: {
+    workerId: v.string()
+  },
+  handler: async (ctx, args): Promise<DesktopRepoConfigForSync[]> => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx)
+    const activeRepos = await listActiveRepoConfigs(ctx, ownerTokenIdentifier, args.workerId)
+
+    return activeRepos.map(toDesktopRepoConfigForSync)
   }
 })
 

@@ -142,6 +142,43 @@ describe('desktop repo config ownership', () => {
     ])
   })
 
+  test('lists config-only repo records for desktop sync inspection', async () => {
+    const t = createTestBackend()
+    await registerWorker(t, 'worker-a')
+
+    await createRepo(t, 'worker-a')
+    await t.mutation(api.repos.syncDesktopRepoStates, {
+      workerId: 'worker-a',
+      repos: [
+        {
+          localRepoId: 'repo-1',
+          currentBranch: 'main',
+          isValid: true,
+          readinessStatus: 'ready',
+          readinessMessage: 'Ready.',
+          lastSeenAt: 123
+        }
+      ]
+    })
+
+    const repos = await t.query(api.repos.listDesktopRepoConfigsForSync, {
+      workerId: 'worker-a'
+    })
+
+    expect(repos).toHaveLength(1)
+    expect(repos[0]).toMatchObject({
+      workerId: 'worker-a',
+      localRepoId: 'repo-1',
+      name: 'Repo One',
+      repoPath: '/workspace/repo-one',
+      workspaceScriptPath: 'new_workspace',
+      agentExecutable: 'codex'
+    })
+    expect(repos[0]).not.toHaveProperty('currentBranch')
+    expect(repos[0]).not.toHaveProperty('readinessStatus')
+    expect(repos[0]).not.toHaveProperty('lastSeenAt')
+  })
+
   test('sync only returns and updates repos owned by the syncing worker', async () => {
     const t = createTestBackend()
     await registerWorker(t, 'worker-a')

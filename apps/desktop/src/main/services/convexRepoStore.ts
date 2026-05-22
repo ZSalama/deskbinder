@@ -12,6 +12,7 @@ import type {
 } from '@deskbinder/shared/deskbinder'
 import { api } from '../../../../../convex/_generated/api'
 import { buildRepoStateMetadata } from './repoSyncMetadata'
+import type { RepoSyncMetadataConfig } from './repoSyncMetadata'
 import type { ConvexSession } from './convexSession'
 
 const DEFAULT_AGENT_EXECUTABLE: AgentExecutable = 'codex'
@@ -277,6 +278,12 @@ export class ConvexRepoStore {
     })
   }
 
+  async listRepoConfigsForSync(): Promise<RepoSyncMetadataConfig[]> {
+    return await this.convexSession.requireClient().query(api.repos.listDesktopRepoConfigsForSync, {
+      workerId: await this.getWorkerId()
+    })
+  }
+
   async getRepoSummary(localRepoId: string): Promise<DesktopRepoSummary> {
     return await this.convexSession
       .requireClient()
@@ -303,7 +310,7 @@ export class ConvexRepoStore {
   async syncRepoStates(): Promise<DesktopRepoSummary[]> {
     const workerId = await this.getWorkerId()
     await this.registerWorker()
-    const repos = await this.listRepos()
+    const repos = await this.listRepoConfigsForSync()
     const repoStates = await buildRepoStateMetadata({ repos })
 
     return await this.convexSession.requireClient().mutation(api.repos.syncDesktopRepoStates, {

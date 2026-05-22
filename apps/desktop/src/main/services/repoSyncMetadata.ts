@@ -22,6 +22,18 @@ type RepoReadinessResult = {
   readinessMessage?: string
 }
 
+export type RepoSyncMetadataConfig = Pick<
+  DesktopRepoSummary,
+  | 'localRepoId'
+  | 'sourceLocalRepoId'
+  | 'name'
+  | 'repoPath'
+  | 'workspaceScriptPath'
+  | 'defaultScriptArgs'
+  | 'agentExecutable'
+  | 'workspaceBranchName'
+>
+
 async function runGitCommand(cwd: string, args: string[]): Promise<GitCommandResult> {
   const { stdout } = await execFileAsync('git', args, {
     cwd,
@@ -185,7 +197,11 @@ async function inspectRepoReadiness(repo: RepoSettings): Promise<RepoReadinessRe
   return createReadinessResult('ready', 'Ready for cloud jobs.', currentBranch)
 }
 
-export async function buildRepoStateMetadata({ repos }: { repos: DesktopRepoSummary[] }): Promise<
+export async function buildRepoStateMetadata({
+  repos
+}: {
+  repos: RepoSyncMetadataConfig[]
+}): Promise<
   Array<{
     localRepoId: string
     currentBranch: string
