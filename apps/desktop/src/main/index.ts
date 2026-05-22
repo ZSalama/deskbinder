@@ -667,7 +667,6 @@ app.whenReady().then(() => {
 
     convexSession.set(input)
     await convexRepoStore.registerWorker()
-    await convexRepoStore.syncRepoStates()
   })
   ipcMain.handle(IPC_CHANNELS.clearConvexSession, async () => {
     convexSession?.clear()
